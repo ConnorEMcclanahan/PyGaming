@@ -26,8 +26,8 @@ class Game:
                         self.bullets.append(Bullet(self.screen, self.player.rect.center))
                     elif event.type == self.player.INVENTORY_ITEM_ADDED:
                         # ... update UI to show new item ...
-                elif event.type == self.player.INVENTORY_ITEM_USED:
-                    # ... update UI to show changes after using an item ...
+                    elif event.type == self.player.INVENTORY_ITEM_USED:
+                        # ... update UI to show changes after using an item ...
 
             self.player.update(pygame.key.get_pressed())
             self.ninja.update()
