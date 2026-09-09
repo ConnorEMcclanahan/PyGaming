@@ -28,7 +28,7 @@ class NinjaStar:
 
 
 class Ninja:
-    def __init__(self, position):
+    def __init__(self, position, bounds=None):
         self.position = pygame.Vector2(position)
         self.rect = pygame.Rect(0, 0, 48, 48)
         self.rect.center = position
@@ -40,23 +40,49 @@ class Ninja:
         # Shooting distance: only fires when player is within this range.
         self.shoot_range = 520
         self.aggro_range = 700
+        # Patrol: ninjas drift around their post while the player is far away.
+        self.bounds = bounds
+        self.wander_timer = 0
+        self.wander_dir = pygame.Vector2(0, 0)
+        self.name = "NINJA"
+        self.gold_reward = 6
+        self.attack_interval = 72
 
     def _dist_to_player(self, player):
         return (pygame.Vector2(player.rect.center) - self.position).length()
+
+    def _wander(self):
+        if self.bounds is None:
+            return
+        self.wander_timer -= 1
+        if self.wander_timer <= 0:
+            self.wander_timer = random.randint(60, 150)
+            self.wander_dir = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+            if self.wander_dir.length_squared() == 0:
+                self.wander_dir = pygame.Vector2(1, 0)
+            self.wander_dir.scale_to_length(random.uniform(0.3, 0.9))
+        self.position += self.wander_dir
+        self.position.x = max(self.bounds.x + 24, min(self.position.x, self.bounds.right - 24))
+        self.position.y = max(self.bounds.y + 24, min(self.position.y, self.bounds.bottom - 24))
+        self.rect.center = (round(self.position.x), round(self.position.y))
+
+    def _fire(self, player, enemy_projectiles):
+        for offset in (-0.28, 0, 0.28):
+            target = pygame.Vector2(player.rect.center)
+            direction = target - self.position
+            angle = math.atan2(direction.y, direction.x) + offset
+            target = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 500
+            enemy_projectiles.append(NinjaStar(self.rect.center, target))
+        self.shoot_timer = self.attack_interval
 
     def update(self, player, enemy_projectiles):
         self.shoot_timer -= 1
         self.anim_timer += 0.1
         if self._dist_to_player(player) > self.aggro_range:
-            return  # player too far away: hold position, hold fire
+            self._wander()  # player too far away: patrol the area
+            return
         if self.shoot_timer <= 0 and self._dist_to_player(player) <= self.shoot_range:
-            for offset in (-0.28, 0, 0.28):
-                target = pygame.Vector2(player.rect.center)
-                direction = target - self.position
-                angle = math.atan2(direction.y, direction.x) + offset
-                target = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 500
-                enemy_projectiles.append(NinjaStar(self.rect.center, target))
-            self.shoot_timer = 72
+            self._fire(player, enemy_projectiles)
 
     def take_damage(self, amount):
         if not self.alive:
@@ -79,6 +105,51 @@ class Ninja:
         health_width = round(54 * max(0, self.health) / self.max_health)
         pygame.draw.rect(screen, (26, 30, 34), (x - 27, y - 34, 54, 6))
         pygame.draw.rect(screen, (204, 58, 65), (x - 27, y - 34, health_width, 6))
+
+
+class NinjaBoss(Ninja):
+    """The warlord of the hideout east of town: bigger, tougher, and he throws
+    much wider fans of stars. Regular ninjas patrol all around his lair."""
+
+    def __init__(self, position, bounds=None):
+        super().__init__(position, bounds)
+        self.rect = pygame.Rect(0, 0, 64, 64)
+        self.rect.center = position
+        self.max_health = 650
+        self.health = self.max_health
+        self.shoot_range = 640
+        self.aggro_range = 950
+        self.attack_interval = 55
+        self.name = "NINJA WARLORD"
+        self.gold_reward = 75
+
+    def _fire(self, player, enemy_projectiles):
+        for offset in (-0.4, -0.2, 0.0, 0.2, 0.4):
+            target = pygame.Vector2(player.rect.center)
+            direction = target - self.position
+            angle = math.atan2(direction.y, direction.x) + offset
+            aim = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 560
+            enemy_projectiles.append(NinjaStar(self.rect.center, aim))
+        self.shoot_timer = self.attack_interval
+
+    def draw(self, screen, camera):
+        x = self.rect.centerx - camera[0]
+        y = self.rect.centery - camera[1] + int(math.sin(self.anim_timer) * 2)
+        pygame.draw.ellipse(screen, (12, 17, 22), (x - 32, y + 24, 64, 16))
+        pygame.draw.rect(screen, (37, 41, 53), (x - 22, y - 6, 44, 38))
+        pygame.draw.rect(screen, (21, 24, 33), (x - 20, y - 28, 40, 24))
+        # Gold warlord sash.
+        pygame.draw.rect(screen, (204, 164, 60), (x - 26, y - 15, 52, 8))
+        pygame.draw.rect(screen, (221, 215, 184), (x - 11, y - 7, 7, 4))
+        pygame.draw.rect(screen, (221, 215, 184), (x + 4, y - 7, 7, 4))
+        pygame.draw.rect(screen, (91, 29, 42), (x - 27, y + 5, 11, 27))
+        pygame.draw.rect(screen, (91, 29, 42), (x + 16, y + 5, 11, 27))
+        hp_w = round(90 * max(0, self.health) / self.max_health)
+        pygame.draw.rect(screen, (26, 30, 34), (x - 45, y - 46, 90, 8))
+        pygame.draw.rect(screen, (204, 58, 65), (x - 45, y - 46, hp_w, 8))
+        pygame.draw.rect(screen, (244, 180, 60), (x - 45, y - 46, hp_w, 4))
+        tag = pygame.font.Font(None, 18).render(self.name, True, (248, 214, 137))
+        screen.blit(tag, tag.get_rect(midbottom=(x, y - 52)))
 
 
 class Chicken:

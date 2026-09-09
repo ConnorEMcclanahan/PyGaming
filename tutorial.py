@@ -483,7 +483,7 @@ class Tutorial:
         return [
             "BOSS DOWN!",
             "The SPACESHIP is descending - wait for it to land, then",
-            "walk into the beam to fly to the overworld!",
+            "walk into the beam to fly to the safe town in the overworld!",
         ]
 
     def _label(self, text, center, color):

@@ -317,15 +317,23 @@ class UI:
         return False
 
     # ------------------------------------------------------------------ hud
-    def draw_hud(self, player, auto_shoot=True):
+    def draw_hud(self, player, auto_shoot=True, show_auto_shoot=True, show_gold=False):
         w, h = self.screen.get_size()
         self._hud_bar(player.mana, 100, (67, 133, 216), (18, h - 54))
         self._hud_bar(player.health, player.max_health, (205, 68, 68), (18, h - 32))
-        key = self.settings.keybinds.get("auto_shoot", pygame.K_x)
-        key_name = pygame.key.name(key).upper()
-        status = "ON" if auto_shoot else "OFF"
-        auto_surf = self.mini_font.render("AUTO SHOOT: {} ({})".format(status, key_name), True, (215, 210, 195))
-        self.screen.blit(auto_surf, (18, 178))
+        y = 158
+        if show_gold:
+            gold = getattr(player, "gold", 0)
+            gold_surf = self.mini_font.render("GOLD: {}".format(gold), True, GOLD)
+            self.screen.blit(gold_surf, (18, y))
+            y += 20
+        if show_auto_shoot:
+            # Tutorial-only helper text; the real world drops the hand-holding.
+            key = self.settings.keybinds.get("auto_shoot", pygame.K_x)
+            key_name = pygame.key.name(key).upper()
+            status = "ON" if auto_shoot else "OFF"
+            auto_surf = self.mini_font.render("AUTO SHOOT: {} ({})".format(status, key_name), True, (215, 210, 195))
+            self.screen.blit(auto_surf, (18, y))
         self._draw_belt()
         self._draw_ability(player)
 

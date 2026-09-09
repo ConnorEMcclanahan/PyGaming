@@ -91,6 +91,8 @@ class Player:
         self.attack_cd = 0
         self.ability_cd = 0
         self.overdrive_timer = 0
+        # Pocket gold for shopping / selling in town.
+        self.gold = 30
 
     def equipped_weapon(self, ui=None):
         try:

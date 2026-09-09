@@ -21,6 +21,7 @@ class Settings:
             "shield": pygame.K_SPACE,
             "auto_shoot": pygame.K_x,
             "ability": pygame.K_SPACE,
+            "interact": pygame.K_e,
         }
 
     def action_name(self, action):
