@@ -11,13 +11,22 @@ import random
 
 import pygame
 
-from items import draw_item_icon
+from items import (
+    LOOT_TABLE,
+    ORB_ITEMS,
+    ORB_NAMES,
+    ORB_ORDER,
+    ORB_VALUES,
+    draw_item_icon,
+    item_slot,
+    upgrade_rarity,
+)
 from ui import BAD_RED, GOLD, RARITY_BORDER, TEXT_DIM, TEXT_LIGHT
 
 # ------------------------------------------------------------------ layout
-TOWN_RECT = pygame.Rect(0, 460, 1250, 1480)   # the walled safe zone
+TOWN_RECT = pygame.Rect(0, 1800, 1250, 1480)   # the walled safe zone (below the water)
 WALL = 26
-GATE_TOP, GATE_BOTTOM = 1080, 1320            # gap in the east wall
+GATE_TOP, GATE_BOTTOM = 2420, 2660            # gap in the east wall
 WALL_RECTS = [
     pygame.Rect(0, TOWN_RECT.top - WALL, TOWN_RECT.width, WALL),                       # north
     pygame.Rect(0, TOWN_RECT.bottom, TOWN_RECT.width, WALL),                           # south
@@ -26,17 +35,18 @@ WALL_RECTS = [
     pygame.Rect(TOWN_RECT.right - WALL, GATE_BOTTOM, WALL, (TOWN_RECT.bottom + WALL) - GATE_BOTTOM),      # east (below gate)
 ]
 GATE_RECT = pygame.Rect(TOWN_RECT.right - WALL, GATE_TOP, WALL, GATE_BOTTOM - GATE_TOP)
-SPAWN_POINT = (600, 1330)
-FOUNTAIN = pygame.Rect(575, 1150, 104, 104)
+SPAWN_POINT = (600, 2300)                     # Inside the town
+FOUNTAIN = pygame.Rect(575, 2150, 104, 104)
 
 BUILDINGS = [
-    {"key": "shop", "rect": pygame.Rect(150, 640, 300, 220), "label": "OUTFITTER", "mode": "shop"},
-    {"key": "sell", "rect": pygame.Rect(810, 640, 300, 220), "label": "BAZAAR", "mode": "sell"},
-    {"key": "vault", "rect": pygame.Rect(810, 1560, 300, 220), "label": "THE VAULT", "mode": "vault"},
+    {"key": "shop", "rect": pygame.Rect(150, 1980, 300, 220), "label": "OUTFITTER", "mode": "shop"},
+    {"key": "sell", "rect": pygame.Rect(810, 1980, 300, 220), "label": "BAZAAR", "mode": "sell"},
+    {"key": "vault", "rect": pygame.Rect(810, 2900, 300, 220), "label": "THE VAULT", "mode": "vault"},
+    {"key": "forge", "rect": pygame.Rect(150, 2900, 300, 220), "label": "THE FORGE", "mode": "forge"},
 ]
 
-# The ninja boss lair on the far east side of the map.
-HIDEOUT_RECT = pygame.Rect(2380, 990, 440, 260)
+# The ninja boss lair - now south of town
+HIDEOUT_RECT = pygame.Rect(1700, 4500, 900, 900)
 HIDEOUT_CENTER = HIDEOUT_RECT.center
 
 # ------------------------------------------------------------------ npcs
@@ -62,7 +72,7 @@ class NPC:
         return self.role is not None
 
     def prompt_label(self):
-        return {"shop": "SHOP", "sell": "SELL", "vault": "VAULT"}.get(self.role, "TALK")
+        return {"shop": "SHOP", "sell": "SELL", "vault": "VAULT", "forge": "FORGE", "respec": "RESPEC"}.get(self.role, "TALK")
 
     def update(self):
         self.anim += 0.08
@@ -99,15 +109,17 @@ class NPC:
 def make_npcs():
     """The town population: a keeper for every service plus wandering folk."""
     npcs = [
-        NPC("MARLA", (300, 910), (70, 110, 190), role="shop"),
-        NPC("FENN", (960, 910), (70, 150, 90), role="sell"),
-        NPC("GRUM", (960, 1850), (190, 150, 60), role="vault"),
-        NPC("PIP", (560, 1020), (150, 110, 80),
-            line="They say the NINJA WARLORD hoards treasure in his hideout, far east past the gate."),
-        NPC("MIRA", (700, 1500), (130, 105, 150),
-            line="Sell your loot at the BAZAAR, and stash your best gear in THE VAULT."),
-        NPC("OLD TOM", (430, 1650), (110, 120, 130),
-            line="The walls keep the ninjas out. Step past the gate and you're on your own."),
+        NPC("MARLA", (350, 2050), (70, 110, 190), role="shop"),
+        NPC("FENN", (900, 2050), (70, 150, 90), role="sell"),
+        NPC("GRUM", (900, 2850), (190, 150, 60), role="vault"),
+        NPC("VULCAN", (350, 2850), (200, 90, 50), role="forge"),
+        NPC("SAGE", (625, 2200), (180, 100, 200), role="respec"),
+        NPC("PIP", (560, 2400), (150, 110, 80),
+            line="They say the NINJA WARLORD hoards treasure in his hideout, far south past the gate."),
+        NPC("MIRA", (700, 2600), (130, 105, 150),
+            line="Slimes infest the ruins to the east. They're weak — good for beginners!"),
+        NPC("OLD TOM", (430, 2700), (110, 120, 130),
+            line="The beach to the south is nice, but don't swim too deep or you'll drown!"),
     ]
     plaza = TOWN_RECT.inflate(-160, -160)
     for npc in npcs:
@@ -168,17 +180,42 @@ def draw_town(screen, camera):
     pygame.draw.circle(screen, (190, 240, 255), f.center, 8)
 
 # ------------------------------------------------------------------ menus
-SELL_PRICE = {"common": 6, "uncommon": 15, "rare": 45, "epic": 110}
-BUY_PRICE = {"common": 25, "uncommon": 60, "rare": 180, "epic": 450}
+SELL_PRICE = {"common": 6, "uncommon": 15, "rare": 45, "epic": 110, "legendary": 260}
+BUY_PRICE = {"common": 25, "uncommon": 60, "rare": 180, "epic": 450, "legendary": 950}
 SHOP_STOCK = [
     ("REPAIR CELL", (220, 70, 70), "common", None),
     ("ENERGY CELL", (78, 200, 255), "uncommon", None),
     ("PLASMA SABER", (90, 220, 255), "common", "weapon"),
     ("ION MAIL", (100, 160, 220), "uncommon", "armor"),
+    ("AURORA BLADE", (140, 255, 230), "rare", "weapon"),
     ("NOVA SCROLL", (255, 190, 110), "rare", "ability"),
     ("VOID CLOAK", (150, 90, 220), "rare", "armor"),
 ]
 VAULT_SIZE = 16
+
+# Forge recipes: costs are exact per-orb-type dicts.
+UPGRADE_COST = {
+    "common": {"scrap": 4, "phase": 1},
+    "uncommon": {"phase": 6, "quantum": 1},
+    "rare": {"quantum": 4, "singularity": 1},
+    "epic": {"quantum": 8, "singularity": 2},
+}
+REROLL_COST = {"phase": 3, "quantum": 1}
+
+
+def fmt_cost(cost):
+    return " + ".join("{} {}".format(n, ORB_NAMES[k]) for k, n in cost.items())
+
+
+def _reroll_item(item):
+    """Chaos-orb style: a random item of the same slot and rarity."""
+    slot = item_slot(item)
+    pool = [it for it in LOOT_TABLE if item_slot(it) == slot and it[2] == item[2]]
+    if not pool:
+        pool = [it for it in LOOT_TABLE if item_slot(it) == slot]
+    if not pool:
+        return item
+    return random.choice(pool)
 
 
 class ShopMenu:
@@ -203,18 +240,23 @@ class ShopMenu:
             self.window = pygame.Rect(0, 0, 500, 78 * len(SHOP_STOCK) + 100)
         elif mode == "vault":
             self.window = pygame.Rect(0, 0, 640, 370)
+        elif mode == "forge":
+            self.window = pygame.Rect(0, 0, 680, 450)
+            self.selected = None
+            self.recipe_rects = []
         else:
             self.window = pygame.Rect(0, 0, 440, 360)
         self.window.center = (arena_cx, h // 2)
-        self.title = {"shop": "OUTFITTER", "sell": "BAZAAR", "vault": "THE VAULT"}[mode]
+        self.title = {"shop": "OUTFITTER", "sell": "BAZAAR", "vault": "THE VAULT", "forge": "THE FORGE"}[mode]
         self.close_rect = pygame.Rect(0, 0, 28, 28)
         self.close_rect.topright = (self.window.right - 8, self.window.top + 8)
         self.item_cells = []
         self._build_slots()
         self.hint = {
-            "shop": "Click an item to buy it.",
-            "sell": "Click an item to sell it.",
+            "shop": "Click an item to buy it (paid in orb value).",
+            "sell": "Click an item to sell it (paid in orbs).",
             "vault": "Click VAULT items to withdraw, BACKPACK items to deposit.",
+            "forge": "Select a backpack item, then pick a recipe.",
         }[mode]
 
     def _build_slots(self):
@@ -238,6 +280,19 @@ class ShopMenu:
                     idx = row * 4 + col
                     rect = pygame.Rect(bx + col * (cell + gap), by + row * (cell + gap), cell, cell)
                     self.item_cells.append(("backpack", idx, rect))
+        elif self.mode == "forge":
+            cell, gap = 52, 10
+            vx, vy = self.window.x + 36, self.window.y + 116
+            for row in range(3):
+                for col in range(4):
+                    idx = row * 4 + col
+                    rect = pygame.Rect(vx + col * (cell + gap), vy + row * (cell + gap), cell, cell)
+                    self.item_cells.append(("backpack", idx, rect))
+            rx = self.window.x + 380
+            self.recipe_rects = [
+                ("upgrade", pygame.Rect(rx, self.window.y + 116, 264, 62)),
+                ("reroll", pygame.Rect(rx, self.window.y + 196, 264, 62)),
+            ]
         else:  # sell: mirrors the 4x3 backpack
             cell, gap, cols = 56, 12, 4
             grid_w = cols * cell + (cols - 1) * gap
@@ -268,6 +323,8 @@ class ShopMenu:
             self._handle_sell(pos)
         elif self.mode == "vault":
             self._handle_vault(pos)
+        elif self.mode == "forge":
+            self._handle_forge(pos)
         return True
 
     def _handle_buy(self, pos):
@@ -276,13 +333,13 @@ class ShopMenu:
                 continue
             item = SHOP_STOCK[i]
             price = BUY_PRICE[item[2]]
-            if self.player.gold < price:
-                self._say("NOT ENOUGH GOLD", BAD_RED)
+            if not self.player.spend_orbs(price):
+                self._say("NOT ENOUGH ORB VALUE (need {})".format(price), BAD_RED)
             elif not self.ui.add_item(item):
+                self.player.credit_orbs(price)
                 self._say("BACKPACK FULL", BAD_RED)
             else:
-                self.player.gold -= price
-                self._say("PURCHASED {} (-{} GOLD)".format(item[0], price), (140, 235, 140))
+                self._say("TRADED for {} (-{} VALUE)".format(item[0], price), (140, 235, 140))
             return
 
     def _handle_sell(self, pos):
@@ -294,8 +351,8 @@ class ShopMenu:
                 return
             price = SELL_PRICE.get(item[2], 5)
             self.ui.backpack[idx] = None
-            self.player.gold += price
-            self._say("SOLD {} (+{} GOLD)".format(item[0], price), (240, 200, 90))
+            self.player.credit_orbs(price)
+            self._say("TRADED {} (+{} VALUE IN ORBS)".format(item[0], price), (240, 200, 90))
             return
 
     def _handle_vault(self, pos):
@@ -324,12 +381,62 @@ class ShopMenu:
                     self._say("DEPOSITED {}".format(item[0]), TEXT_LIGHT)
             return
 
+    def _handle_forge(self, pos):
+        for where, idx, cell in self.item_cells:
+            if not cell.collidepoint(pos):
+                continue
+            if self.ui.backpack[idx] is not None:
+                self.selected = idx
+                self._say("SELECTED {}".format(self.ui.backpack[idx][0]), TEXT_LIGHT)
+            return
+        for action, rect in getattr(self, "recipe_rects", []):
+            if not rect.collidepoint(pos):
+                continue
+            item = self.ui.backpack[self.selected] if self.selected is not None else None
+            if action == "upgrade":
+                self._forge_upgrade(item)
+            else:
+                self._forge_reroll(item)
+            return
+
+    def _forge_upgrade(self, item):
+        if item is None:
+            self._say("SELECT A BACKPACK ITEM FIRST", BAD_RED)
+            return
+        rarity = item[2] if len(item) > 2 else "common"
+        cost = UPGRADE_COST.get(rarity)
+        if cost is None:
+            self._say("{} IS ALREADY LEGENDARY".format(item[0]), GOLD)
+            return
+        if not self.player.pay_orbs(cost):
+            self._say("MISSING ORBS: {}".format(fmt_cost(cost)), BAD_RED)
+            return
+        upgraded = upgrade_rarity(item)
+        self.ui.backpack[self.selected] = upgraded
+        self._say("FORGED {} -> {} {}".format(item[0], upgraded[2].upper(), upgraded[0]), (140, 235, 140))
+
+    def _forge_reroll(self, item):
+        if item is None:
+            self._say("SELECT A BACKPACK ITEM FIRST", BAD_RED)
+            return
+        if not self.player.pay_orbs(REROLL_COST):
+            self._say("MISSING ORBS: {}".format(fmt_cost(REROLL_COST)), BAD_RED)
+            return
+        new_item = _reroll_item(item)
+        self.ui.backpack[self.selected] = new_item
+        self._say("REROLLED INTO {}".format(new_item[0]), (240, 200, 90))
+
+    def _orb_header(self):
+        counts = "  ".join("{} {}".format(ORB_NAMES[k], self.player.orbs.get(k, 0)) for k in ORB_ORDER)
+        return "ORBS: {}  (VALUE {})".format(counts, self.player.orb_balance())
+
     # ------------------------------------------------------------- drawing
-    def _draw_cell(self, cell, item):
+    def _draw_cell(self, cell, item, selected=False):
         pygame.draw.rect(self.screen, (34, 30, 26), cell)
         if item is not None:
             draw_item_icon(self.screen, item, cell.inflate(-10, -10))
-            pygame.draw.rect(self.screen, RARITY_BORDER.get(item[2], (140, 142, 148)), cell, 2)
+            border = GOLD if selected else RARITY_BORDER.get(item[2], (140, 142, 148))
+            pygame.draw.rect(self.screen, border, cell, 3 if selected else 2)
         else:
             pygame.draw.rect(self.screen, (74, 62, 44), cell, 2)
 
@@ -343,8 +450,8 @@ class ShopMenu:
         pygame.draw.rect(self.screen, (110, 92, 58), win, 3)
         title = self.font.render(self.title, True, GOLD)
         self.screen.blit(title, title.get_rect(midtop=(win.centerx, win.y + 12)))
-        gold_lbl = self.small.render("GOLD: {}".format(self.player.gold), True, GOLD)
-        self.screen.blit(gold_lbl, (win.x + 16, win.y + 16))
+        orb_lbl = self.mini.render(self._orb_header(), True, GOLD)
+        self.screen.blit(orb_lbl, (win.x + 16, win.y + 18))
         pygame.draw.rect(self.screen, (34, 30, 26), self.close_rect)
         pygame.draw.rect(self.screen, BAD_RED, self.close_rect, 2)
         x_lbl = self.small.render("X", True, TEXT_LIGHT)
@@ -371,14 +478,49 @@ class ShopMenu:
                 price = self.small.render("{} GOLD".format(BUY_PRICE[item[2]]), True, GOLD)
                 self.screen.blit(price, price.get_rect(midright=(row.right - 14, row.centery)))
                 if hovered:
-                    hover_text = "{} - {} gold".format(item[0], BUY_PRICE[item[2]])
+                    hover_text = "{} - {} value".format(item[0], BUY_PRICE[item[2]])
         elif self.mode == "sell":
             for idx, cell in self.item_cells:
                 item = self.ui.backpack[idx]
                 self._draw_cell(cell, item)
                 if item is not None and cell.collidepoint(mouse):
-                    hover_text = "{} - sells for {} gold".format(item[0], SELL_PRICE.get(item[2], 5))
-        else:
+                    hover_text = "{} - trades for {} value".format(item[0], SELL_PRICE.get(item[2], 5))
+        elif self.mode == "forge":
+            for where, idx, cell in self.item_cells:
+                item = self.ui.backpack[idx]
+                self._draw_cell(cell, item, selected=(self.selected == idx))
+                if item is not None and cell.collidepoint(mouse):
+                    hover_text = "{} ({}) - select to forge".format(item[0], item[2].upper())
+            grid_top = self.item_cells[0][2].top
+            b_lbl = self.small.render("BACKPACK - CLICK TO SELECT", True, GOLD)
+            self.screen.blit(b_lbl, b_lbl.get_rect(midbottom=(self.item_cells[0][2].centerx, grid_top - 8)))
+            for action, rect in self.recipe_rects:
+                hovered = rect.collidepoint(mouse)
+                pygame.draw.rect(self.screen, (34, 30, 26), rect)
+                pygame.draw.rect(self.screen, GOLD if hovered else (110, 92, 58), rect, 2)
+                sel_item = self.ui.backpack[self.selected] if self.selected is not None else None
+                if action == "upgrade":
+                    line1 = "UPGRADE RARITY"
+                    rarity = sel_item[2] if sel_item is not None else "common"
+                    cost = UPGRADE_COST.get(rarity)
+                    line2 = fmt_cost(cost) if cost else "MAX TIER REACHED"
+                else:
+                    line1 = "REROLL ITEM"
+                    line2 = fmt_cost(REROLL_COST)
+                l1 = self.small.render(line1, True, TEXT_LIGHT)
+                l2 = self.mini.render(line2, True, GOLD)
+                self.screen.blit(l1, (rect.x + 12, rect.y + 10))
+                self.screen.blit(l2, (rect.x + 12, rect.y + 34))
+            if sel_item is not None:
+                info = self.mini.render(
+                    "SELECTED: {} ({})".format(sel_item[0], sel_item[2].upper()), True, TEXT_LIGHT
+                )
+            else:
+                info = self.mini.render("NOTHING SELECTED", True, TEXT_DIM)
+            self.screen.blit(info, (self.window.x + 380, self.window.y + 86))
+            r_lbl = self.small.render("FORGE RECIPES", True, GOLD)
+            self.screen.blit(r_lbl, (self.window.x + 380, self.window.y + 64))
+        else:  # vault
             for where, idx, cell in self.item_cells:
                 item = self.vault[idx] if where == "vault" else self.ui.backpack[idx]
                 self._draw_cell(cell, item)

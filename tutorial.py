@@ -42,6 +42,9 @@ class Tutorial:
         self.clock = pygame.time.Clock()
         self.ui = UI(screen, settings)
         self.view_width = screen.get_width() - self.ui.panel.width
+        # Offscreen surface the world renders onto (rotated for Q/E camera).
+        self.world_surf = pygame.Surface((self.view_width, WORLD_H), pygame.SRCALPHA)
+        self.camera_angle = 0.0
         self.ui.equipment["weapon"] = ("PULSE BLADE", (120, 220, 255), "common", "weapon")
         self.ui.equipment["ability"] = ("HOLO SCROLL", (188, 205, 222), "common", "ability")
 
@@ -51,13 +54,10 @@ class Tutorial:
         self.player.rect.topleft = (self.player.x, self.player.y)
 
         self.chicken = Chicken((1120, WORLD_H // 2), pygame.Rect(850, 0, 650, WORLD_H))
-        # Boss lives INSIDE its room; the east half of it is closed until dead.
-        self.boss = GiantChickenBoss((2150, WORLD_H // 2), pygame.Rect(BOSS_ROOM_X + 30, 0, 340, WORLD_H))
-        self.boss_door_open = False
-        self.in_boss_room = False
+        # Boss stands in the open before the grass wall
+        self.boss = GiantChickenBoss((2150, WORLD_H // 2), pygame.Rect(1800, 0, 500, WORLD_H))
         self.boss_fight_on = False
-        # Wall between the boss room and the grass/ship pad: solid until the
-        # spaceship lands, then cleared so the player can board.
+        # Wall blocking the grass/ship pad area until the boss is defeated
         self.wall_x = 2450
         self.wall_open = False
         self.projectiles = []
@@ -78,6 +78,8 @@ class Tutorial:
     def run(self):
         auto_shoot_key = self.settings.keybinds.get("auto_shoot", pygame.K_x)
         ability_key = self.settings.keybinds.get("ability", pygame.K_SPACE)
+        rotate_left_key = self.settings.keybinds.get("rotate_left", pygame.K_q)
+        rotate_right_key = self.settings.keybinds.get("rotate_right", pygame.K_e)
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -87,10 +89,14 @@ class Tutorial:
                         return "skipped"
                     if event.key == ability_key:
                         mouse = pygame.mouse.get_pos()
-                        world_mouse = (mouse[0] + self.camera.x, mouse[1] + self.camera.y)
+                        world_mouse = self._screen_to_world(mouse)
                         self._cast_ability(world_mouse)
                     elif event.key == auto_shoot_key:
                         self.auto_shoot = not self.auto_shoot
+                    elif event.key == rotate_left_key:
+                        self.camera_angle = (self.camera_angle + 15) % 360
+                    elif event.key == rotate_right_key:
+                        self.camera_angle = (self.camera_angle - 15) % 360
                     else:
                         self.ui.handle_key(event, self.player)
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -109,31 +115,30 @@ class Tutorial:
                 if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                     self.ui.handle_release(event.pos)
 
-            if not self.boss.alive and not self.boss_door_open:
-                # Boss down -> east room door swings open, ship heads for grass.
-                self.boss_door_open = True
+            if not self.boss.alive and not self.wall_open:
+                # Boss down -> wall opens, ship heads for grass.
+                self.wall_open = True
                 if self.ship is None:
                     self._start_ship()
 
             self.player.update(pygame.key.get_pressed(), self.settings.keybinds)
+            # Hold Q / E to keep spinning the camera.
+            keys_held = pygame.key.get_pressed()
+            if keys_held[self.settings.keybinds.get("rotate_left", pygame.K_q)]:
+                self.camera_angle = (self.camera_angle + 2.5) % 360
+            if keys_held[self.settings.keybinds.get("rotate_right", pygame.K_e)]:
+                self.camera_angle = (self.camera_angle - 2.5) % 360
             mouse = pygame.mouse.get_pos()
-            world_mouse = (mouse[0] + self.camera.x, mouse[1] + self.camera.y)
+            world_mouse = self._screen_to_world(mouse)
             self.player.aim_at(world_mouse)
             self.player.x = max(0, min(self.player.x, WORLD_W - self.player.width))
             self.player.y = max(0, min(self.player.y, WORLD_H - self.player.height))
             self.player.rect.topleft = (self.player.x, self.player.y)
-            # Boss-room doors: west always open; east locked until boss dies.
-            # Keep the player fully inside or outside (no standing in doorway).
-            self.in_boss_room = self.player.rect.centerx > BOSS_ROOM_X + 8
-            if not self.boss_door_open and self.player.rect.centerx > BOSS_ROOM_X2 - 10:
-                self.player.x = BOSS_ROOM_X2 - 10 - self.player.width // 2
-                self.player.rect.topleft = (self.player.x, self.player.y)
-            if not self.boss_fight_on and self.boss.alive and self.player.rect.centerx > BOSS_ROOM_X + 60:
+            # Boss fight starts when player gets close to the boss
+            if not self.boss_fight_on and self.boss.alive and self.player.rect.centerx > 1800:
                 self.boss_fight_on = True
 
-            # Wall before the grass: solid until the spaceship has landed.
-            if self.ship is not None and self.ship["landed"]:
-                self.wall_open = True
+            # Wall before the grass: solid until the boss is defeated.
             if not self.wall_open and self.player.rect.centerx > self.wall_x - 10:
                 self.player.x = self.wall_x - 10 - self.player.width // 2
                 self.player.rect.topleft = (self.player.x, self.player.y)
@@ -142,7 +147,7 @@ class Tutorial:
             # try_attack() rate-limits to the weapon's attack speed.
             if self.mouse_held and not self.ui.panel.collidepoint(pygame.mouse.get_pos()):
                 mouse = pygame.mouse.get_pos()
-                world_mouse = (mouse[0] + self.camera.x, mouse[1] + self.camera.y)
+                world_mouse = self._screen_to_world(mouse)
                 self.projectiles.extend(self.player.try_attack(world_mouse, self.ui))
 
             self.chicken.update()
@@ -211,6 +216,16 @@ class Tutorial:
                 (ship["x"] + random.randint(-40, 40), ship["land_y"] + 42),
                 [(120, 220, 120), (90, 200, 90), (190, 255, 190)],
             )
+
+    def _screen_to_world(self, screen_pos):
+        """Map a screen position to tutorial world coordinates, inverting the
+        Q/E camera rotation so aiming stays accurate at any angle."""
+        view_c = pygame.Vector2(self.view_width / 2, WORLD_H / 2)
+        offset = pygame.Vector2(screen_pos) - view_c
+        if self.camera_angle % 360 != 0:
+            offset = offset.rotate(self.camera_angle)
+        p = offset + view_c
+        return (p.x + self.camera.x, p.y)
 
     def _update_camera(self):
         target_x = self.player.rect.centerx - self.view_width // 2
@@ -319,42 +334,53 @@ class Tutorial:
 
     # ------------------------------------------------------------------ draw
     def _draw(self):
-        w = self.screen.get_width()
-        self.screen.fill(TUT_BG)
-        pygame.draw.rect(self.screen, (34, 45, 53), (0, 0, w, WORLD_H))
+        surf = self.world_surf
+        w = surf.get_width()
+        surf.fill(TUT_BG)
+        pygame.draw.rect(surf, (34, 45, 53), (0, 0, w, WORLD_H))
         tile = 48
         start_x = int(self.camera.x // tile) * tile
         for x in range(start_x, int(self.camera.x) + w + tile, tile):
             sx = x - round(self.camera.x)
-            pygame.draw.line(self.screen, (38, 50, 59), (sx, 0), (sx, WORLD_H))
+            pygame.draw.line(surf, (38, 50, 59), (sx, 0), (sx, WORLD_H))
         # Grass meadow east of the boss room (where the ship lands).
         gx = GRASS_X - round(self.camera.x)
-        pygame.draw.rect(self.screen, (46, 80, 52), (gx, 0, w - gx + 400, WORLD_H))
+        pygame.draw.rect(surf, (46, 80, 52), (gx, 0, w - gx + 400, WORLD_H))
         for x in range(int(GRASS_X // tile) * tile, WORLD_W + tile, tile):
             sx = x - round(self.camera.x)
             if -tile < sx < w + tile:
-                pygame.draw.line(self.screen, (56, 96, 62), (sx, 0), (sx, WORLD_H))
-        pygame.draw.rect(self.screen, (40, 68, 46), (gx, WORLD_H - 46, w - gx + 400, 46))
+                pygame.draw.line(surf, (56, 96, 62), (sx, 0), (sx, WORLD_H))
+        pygame.draw.rect(surf, (40, 68, 46), (gx, WORLD_H - 46, w - gx + 400, 46))
 
         self._draw_arrows()
         self._draw_back_gate()
         self._draw_boss_room()
         self._draw_chests()
         if self.chicken.alive:
-            self.chicken.draw(self.screen, (round(self.camera.x), 0))
+            self.chicken.draw(surf, (round(self.camera.x), 0))
         if self.boss.alive:
-            self.boss.draw(self.screen, (round(self.camera.x), 0))
+            self.boss.draw(surf, (round(self.camera.x), 0))
         for egg in self.egg_projectiles:
-            egg.draw(self.screen, (round(self.camera.x), 0))
+            egg.draw(surf, (round(self.camera.x), 0))
         for proj in self.projectiles:
-            proj.draw(self.screen, (round(self.camera.x), 0))
+            proj.draw(surf, (round(self.camera.x), 0))
         if self.ship is not None:
             self._draw_ship()
-        self.player.draw(self.screen, (round(self.camera.x), 0))
+        self.player.draw(surf, (round(self.camera.x), 0))
         for burst in self.particles:
             px = round(burst["pos"].x - self.camera.x)
             py = round(burst["pos"].y)
-            self.screen.fill(burst["color"], (px, py, 4, 4))
+            surf.fill(burst["color"], (px, py, 4, 4))
+
+        # Spin the world around the view center (Q/E camera) so things hidden
+        # under the inventory panel can be brought into view.
+        self.screen.fill((8, 10, 14))
+        if self.camera_angle % 360 == 0:
+            self.screen.blit(surf, (0, 0))
+        else:
+            rotated = pygame.transform.rotate(surf, self.camera_angle)
+            rect = rotated.get_rect(center=(self.view_width // 2, WORLD_H // 2))
+            self.screen.blit(rotated, rect)
 
         self.ui.draw_hud(self.player, self.auto_shoot)
         self.ui.draw_inventory(self.player, self.camera, [self.chicken, self.boss], [], self._landmarks(), (WORLD_W, WORLD_H))
@@ -376,99 +402,73 @@ class Tutorial:
         t = pygame.time.get_ticks() / 1000
         for ax in ARROW_XS:
             x = ax - round(self.camera.x)
-            if x < -60 or x > self.screen.get_width() + 60:
+            if x < -60 or x > self.world_surf.get_width() + 60:
                 continue
             y = WORLD_H // 2 + 78 + int(math.sin(t * 3 + ax) * 7)
-            pygame.draw.rect(self.screen, (255, 190, 40), (x, y - 3, 26, 6))
-            pygame.draw.polygon(self.screen, (255, 190, 40), [(x + 26, y - 9), (x + 44, y), (x + 26, y + 9)])
-            pygame.draw.rect(self.screen, (140, 100, 40), (x, y - 3, 44, 6), 1)
+            pygame.draw.rect(self.world_surf, (255, 190, 40), (x, y - 3, 26, 6))
+            pygame.draw.polygon(self.world_surf, (255, 190, 40), [(x + 26, y - 9), (x + 44, y), (x + 26, y + 9)])
+            pygame.draw.rect(self.world_surf, (140, 100, 40), (x, y - 3, 44, 6), 1)
         first = ARROW_XS[0] - round(self.camera.x)
         self._label("FOLLOW THE ARROWS ->", (first + 40, WORLD_H // 2 + 48), (255, 224, 130))
 
     def _draw_back_gate(self):
         x = 140 - round(self.camera.x)
-        if x < -120 or x > self.screen.get_width() + 120:
+        if x < -120 or x > self.world_surf.get_width() + 120:
             return
         y = WORLD_H // 2 - 70
-        pygame.draw.rect(self.screen, (90, 80, 60), (x, y, 90, 140))
-        pygame.draw.rect(self.screen, (150, 130, 90), (x, y, 90, 140), 6)
+        pygame.draw.rect(self.world_surf, (90, 80, 60), (x, y, 90, 140))
+        pygame.draw.rect(self.world_surf, (150, 130, 90), (x, y, 90, 140), 6)
         self._label("THE GATE", (x + 45, y - 12), (248, 214, 137))
 
     def _draw_boss_room(self):
-        """The giant chicken's chamber: stone side walls, an always-open west
-        door and an east door that stays sealed until the boss is defeated."""
-        x1 = BOSS_ROOM_X - round(self.camera.x)
-        x2 = BOSS_ROOM_X2 - round(self.camera.x)
-        y = WORLD_H // 2
-        if x2 < -140 or x1 > self.screen.get_width() + 140:
-            return
-        # Chamber floor: darker stone than the corridor tiles.
-        pygame.draw.rect(self.screen, (33, 39, 45), (x1, 0, x2 - x1, WORLD_H))
-        for tx in range(BOSS_ROOM_X, BOSS_ROOM_X2, 48):
-            sx = tx - round(self.camera.x)
-            pygame.draw.line(self.screen, (37, 44, 51), (sx, 0), (sx, WORLD_H))
-        # West door frame: always open.
-        pygame.draw.rect(self.screen, (95, 76, 58), (x1 - 6, y - 170, 12, 340))
-        for i in range(11):
-            pygame.draw.rect(self.screen, (110, 88, 66), (x1 - 20, y - 170 + i * 30 - 8, 16, 12))
-        self._label("BOSS ROOM", (x1, y - 190), (248, 214, 137))
-        # East door: sealed until the boss drops, then swung open.
-        if self.boss_door_open:
-            pygame.draw.rect(self.screen, (110, 90, 70), (x2 - 6, y - 170, 12, 100))
-            pygame.draw.rect(self.screen, (110, 90, 70), (x2 - 6, y + 70, 12, 100))
-            self._label("WAY OPEN!", (x2, y - 190), (120, 220, 120))
-        else:
-            pygame.draw.rect(self.screen, (95, 76, 58), (x2 - 6, y - 170, 12, 340))
-            for i in range(11):
-                pygame.draw.rect(self.screen, (110, 88, 66), (x2 - 20, y - 170 + i * 30 - 8, 16, 12))
-            self._label("DOOR LOCKED", (x2, y - 190), (248, 214, 137))
-        # Wall before the grass pad (renders as rubble once the ship lands).
-        self._draw_wall()
-
-    def _draw_wall(self):
+        """Draw a simple wall blocking the grass area until the boss is defeated."""
         x = self.wall_x - round(self.camera.x)
-        y = WORLD_H // 2 - 170
-        if self.wall_open:
-            pygame.draw.rect(self.screen, (110, 90, 70), (x + 6, y, 60, 90))
-            pygame.draw.rect(self.screen, (90, 72, 58), (x - 6, y + 100, 44, 70))
-            self._label("WAY CLEARED!", (x, y - 16), (120, 220, 120))
+        y = WORLD_H // 2
+        if x < -140 or x > self.world_surf.get_width() + 140:
             return
-        pygame.draw.rect(self.screen, (95, 76, 58), (x - 4, y, 12, 340))
-        for i in range(11):
-            pygame.draw.rect(self.screen, (110, 88, 66), (x - 20, y + i * 30 - 8, 16, 12))
-        self._label("SHIP PAD AHEAD!", (x, y - 16), (248, 214, 137))
+        if self.wall_open:
+            # Wall opened - show a gap
+            pygame.draw.rect(self.world_surf, (110, 90, 70), (x + 6, y - 170, 60, 90))
+            pygame.draw.rect(self.world_surf, (90, 72, 58), (x - 6, y + 70, 44, 100))
+            self._label("WAY OPEN!", (x, y - 190), (120, 220, 120))
+        else:
+            # Solid wall blocking the grass
+            pygame.draw.rect(self.world_surf, (95, 76, 58), (x - 6, y - 170, 12, 340))
+            for i in range(11):
+                pygame.draw.rect(self.world_surf, (110, 88, 66), (x - 20, y - 170 + i * 30 - 8, 16, 12))
+            self._label("DEFEAT BOSS FIRST!", (x, y - 190), (248, 214, 137))
 
     def _draw_chests(self):
         for chest in self.chests:
             x = chest["x"] - round(self.camera.x)
             y = WORLD_H // 2 + 6
             if chest["opened"]:
-                pygame.draw.rect(self.screen, (70, 54, 38), (x - 22, y - 8, 44, 32))
-                pygame.draw.line(self.screen, (50, 40, 28), (x - 22, y - 8), (x + 22, y - 8), 4)
+                pygame.draw.rect(self.world_surf, (70, 54, 38), (x - 22, y - 8, 44, 32))
+                pygame.draw.line(self.world_surf, (50, 40, 28), (x - 22, y - 8), (x + 22, y - 8), 4)
                 self._label("OPENED", (x, y - 26), (130, 160, 130))
             else:
-                pygame.draw.rect(self.screen, (120, 92, 56), (x - 24, y - 4, 48, 36))
-                pygame.draw.rect(self.screen, (200, 168, 80), (x - 24, y - 4, 48, 36), 3)
-                pygame.draw.rect(self.screen, (240, 205, 110), (x - 8, y - 4, 16, 10))
+                pygame.draw.rect(self.world_surf, (120, 92, 56), (x - 24, y - 4, 48, 36))
+                pygame.draw.rect(self.world_surf, (200, 168, 80), (x - 24, y - 4, 48, 36), 3)
+                pygame.draw.rect(self.world_surf, (240, 205, 110), (x - 8, y - 4, 16, 10))
                 self._label("GEAR", (x, y - 26), (255, 224, 130))
 
     def _draw_ship(self):
         ship = self.ship
         x = ship["x"] - round(self.camera.x)
         y = round(ship["y"])
-        if x < -160 or x > self.screen.get_width() + 160:
+        if x < -160 or x > self.world_surf.get_width() + 160:
             return
         # Thruster flames while flying in.
         if not ship["landed"]:
             for i, off in enumerate((-14, 0, 14)):
                 fl = 14 + int(math.sin(self.ship_beam * 6 + i) * 5)
                 pygame.draw.polygon(
-                    self.screen,
+                    self.world_surf,
                     (255, 190, 90),
                     [(x - 52 + off - 5, y + 2), (x - 52 + off + 5, y + 2), (x - 52 + off, y + 2 + fl + 14)],
                 )
                 pygame.draw.polygon(
-                    self.screen,
+                    self.world_surf,
                     (255, 240, 180),
                     [(x - 52 + off - 2, y + 2), (x - 52 + off + 2, y + 2), (x - 52 + off, y + 2 + fl)],
                 )
@@ -477,13 +477,13 @@ class Tutorial:
             beam_w = 20 + int(math.sin(self.ship_beam * 2) * 3)
             beam = pygame.Surface((beam_w, ship["land_y"] + 60 - y), pygame.SRCALPHA)
             beam.fill((90, 220, 110, 110))
-            self.screen.blit(beam, (x - beam_w // 2, int(ship["land_y"])))
-        pygame.draw.ellipse(self.screen, (120, 190, 130), (x - 46, y - 8, 92, 34))
-        pygame.draw.ellipse(self.screen, (200, 240, 190), (x - 16, y - 24, 34, 20))
-        pygame.draw.rect(self.screen, (150, 215, 155), (x - 18, y - 4, 36, 8))
-        pygame.draw.circle(self.screen, (80, 170, 90), (x - 32, y + 2), 5)
-        pygame.draw.circle(self.screen, (80, 170, 90), (x + 32, y + 2), 5)
-        pygame.draw.ellipse(self.screen, (90, 200, 110), (x - 56, y - 14, 112, 46), 2)
+            self.world_surf.blit(beam, (x - beam_w // 2, int(ship["land_y"])))
+        pygame.draw.ellipse(self.world_surf, (120, 190, 130), (x - 46, y - 8, 92, 34))
+        pygame.draw.ellipse(self.world_surf, (200, 240, 190), (x - 16, y - 24, 34, 20))
+        pygame.draw.rect(self.world_surf, (150, 215, 155), (x - 18, y - 4, 36, 8))
+        pygame.draw.circle(self.world_surf, (80, 170, 90), (x - 32, y + 2), 5)
+        pygame.draw.circle(self.world_surf, (80, 170, 90), (x + 32, y + 2), 5)
+        pygame.draw.ellipse(self.world_surf, (90, 200, 110), (x - 56, y - 14, 112, 46), 2)
         if ship["landed"]:
             self._label("ENTER THE SHIP!", (x, y - 44), (255, 210, 120))
 
@@ -508,7 +508,7 @@ class Tutorial:
             return [
                 "WELCOME, KNIGHT!",
                 "Move: WASD   |   Shoot: Left Click (auto shoot with X)",
-                "Follow the arrows and defeat the CHICKEN ahead!",
+                "Q/E rotate the view  |  Follow the arrows - defeat the CHICKEN!",
             ]
         if self.boss.alive and equip_count == 0:
             return [
@@ -530,4 +530,4 @@ class Tutorial:
 
     def _label(self, text, center, color):
         surf = self.font_small.render(text, True, color)
-        self.screen.blit(surf, surf.get_rect(center=(center[0], center[1])))
+        self.world_surf.blit(surf, surf.get_rect(center=(center[0], center[1])))

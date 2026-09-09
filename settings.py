@@ -7,8 +7,8 @@ class Settings:
         self.screen_height = 768
         self.arena_width = self.screen_width
         self.background_color = (27, 35, 43)
-        self.world_width = 3200
-        self.world_height = 2400
+        self.world_width = 8000
+        self.world_height = 8000
         self.camera_lerp = 0.14
 
         # Default keybinds: action name -> pygame key constant.
@@ -21,7 +21,9 @@ class Settings:
             "shield": pygame.K_SPACE,
             "auto_shoot": pygame.K_x,
             "ability": pygame.K_SPACE,
-            "interact": pygame.K_e,
+            "interact": pygame.K_f,
+            "rotate_left": pygame.K_q,
+            "rotate_right": pygame.K_e,
         }
 
     def action_name(self, action):

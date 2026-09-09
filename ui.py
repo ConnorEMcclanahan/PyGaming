@@ -7,12 +7,14 @@ RARITY_COLORS = {
     "uncommon": (130, 195, 255),
     "rare": (255, 212, 110),
     "epic": (205, 125, 255),
+    "legendary": (255, 130, 50),
 }
 RARITY_TEXT = {
     "common": "COMMON",
     "uncommon": "UNCOMMON",
     "rare": "RARE",
     "epic": "EPIC",
+    "legendary": "LEGENDARY",
 }
 SLOT_LABEL = {
     "helmet": "Helmet",
@@ -36,6 +38,7 @@ RARITY_BORDER = {
     "uncommon": (84, 152, 200),
     "rare": (216, 176, 72),
     "epic": (176, 88, 216),
+    "legendary": (255, 130, 50),
 }
 SLOT_TITLES = {
     "helmet": "HELMET",
@@ -317,15 +320,14 @@ class UI:
         return False
 
     # ------------------------------------------------------------------ hud
-    def draw_hud(self, player, auto_shoot=True, show_auto_shoot=True, show_gold=False):
+    def draw_hud(self, player, auto_shoot=True, show_auto_shoot=True, show_orbs=False):
         w, h = self.screen.get_size()
         self._hud_bar(player.mana, 100, (67, 133, 216), (18, h - 54))
         self._hud_bar(player.health, player.max_health, (205, 68, 68), (18, h - 32))
         y = 158
-        if show_gold:
-            gold = getattr(player, "gold", 0)
-            gold_surf = self.mini_font.render("GOLD: {}".format(gold), True, GOLD)
-            self.screen.blit(gold_surf, (18, y))
+        if show_orbs:
+            orb_surf = self.mini_font.render("ORBS: {}".format(player.orb_balance()), True, GOLD)
+            self.screen.blit(orb_surf, (18, y))
             y += 20
         if show_auto_shoot:
             # Tutorial-only helper text; the real world drops the hand-holding.

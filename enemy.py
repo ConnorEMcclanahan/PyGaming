@@ -27,6 +27,270 @@ class NinjaStar:
         pygame.draw.circle(screen, (54, 65, 80), center, 4)
 
 
+class SlimeBall:
+    """Slime projectile - a wobbly blob shot at the player."""
+    def __init__(self, start_pos, target_pos, color=(100, 200, 100)):
+        self.position = pygame.Vector2(start_pos)
+        direction = pygame.Vector2(target_pos) - self.position
+        self.velocity = direction.normalize() * 3.5 if direction.length() else pygame.Vector2(0, 1)
+        self.rect = pygame.Rect(0, 0, 16, 16)
+        self.rect.center = start_pos
+        self.color = color
+        self.wobble = random.uniform(0, math.tau)
+
+    def update(self):
+        self.position += self.velocity
+        self.wobble += 0.1
+        self.velocity.x += math.sin(self.wobble) * 0.05
+        self.rect.center = (round(self.position.x), round(self.position.y))
+
+    def draw(self, screen, camera):
+        cx = self.rect.centerx - camera[0]
+        cy = self.rect.centery - camera[1]
+        pygame.draw.ellipse(screen, self.color, (cx - 8, cy - 6, 16, 12))
+        pygame.draw.ellipse(screen, (255, 255, 255), (cx - 4, cy - 4, 4, 3))
+
+
+class Slime:
+    """A friendly-looking slime enemy. Hops toward the player and shoots slime balls."""
+    
+    VARIANTS = {
+        "green":  {"name": "GREEN SLIME",  "color": (80, 180, 80),  "health": 40,  "damage": 8,  "speed": 1.2, "shoot_interval": 90, "exp": 10},
+        "blue":   {"name": "BLUE SLIME",   "color": (80, 140, 220), "health": 60,  "damage": 12, "speed": 1.0, "shoot_interval": 80, "exp": 15},
+        "red":    {"name": "RED SLIME",    "color": (220, 80, 80),  "health": 80,  "damage": 18, "speed": 1.5, "shoot_interval": 70, "exp": 20},
+        "purple": {"name": "PURPLE SLIME", "color": (160, 80, 200), "health": 100, "damage": 22, "speed": 0.8, "shoot_interval": 60, "exp": 25},
+    }
+    
+    def __init__(self, position, variant="green", bounds=None):
+        self.variant = variant
+        stats = self.VARIANTS[variant]
+        self.name = stats["name"]
+        self.color = stats["color"]
+        self.max_health = stats["health"]
+        self.health = self.max_health
+        self.damage = stats["damage"]
+        self.move_speed = stats["speed"]
+        self.shoot_interval = stats["shoot_interval"]
+        self.exp_reward = stats["exp"]
+        
+        self.position = pygame.Vector2(position)
+        self.rect = pygame.Rect(0, 0, 36, 36)
+        self.rect.center = position
+        self.shoot_timer = random.randint(30, self.shoot_interval)
+        self.anim_timer = random.uniform(0, math.tau)
+        self.alive = True
+        
+        self.hop_timer = 0
+        self.is_hopping = False
+        self.hop_target = None
+        self.bounds = bounds
+        self.wander_timer = 0
+        self.wander_dir = pygame.Vector2(0, 0)
+        self.aggro_range = 400
+        self.shoot_range = 350
+
+    def _dist_to_player(self, player):
+        return (pygame.Vector2(player.rect.center) - self.position).length()
+
+    def _wander(self):
+        if self.bounds is None:
+            return
+        self.wander_timer -= 1
+        if self.wander_timer <= 0:
+            self.wander_timer = random.randint(60, 120)
+            self.wander_dir = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+            if self.wander_dir.length_squared() == 0:
+                self.wander_dir = pygame.Vector2(1, 0)
+            self.wander_dir.scale_to_length(self.move_speed * 0.5)
+        self.position += self.wander_dir
+        self.position.x = max(self.bounds.x + 18, min(self.position.x, self.bounds.right - 18))
+        self.position.y = max(self.bounds.y + 18, min(self.position.y, self.bounds.bottom - 18))
+        self.rect.center = (round(self.position.x), round(self.position.y))
+
+    def _hop_toward(self, target_pos):
+        if not self.is_hopping:
+            self.is_hopping = True
+            self.hop_timer = 20
+            direction = pygame.Vector2(target_pos) - self.position
+            if direction.length() > 0:
+                self.hop_target = self.position + direction.normalize() * 60
+            else:
+                self.hop_target = self.position
+        
+        self.hop_timer -= 1
+        if self.hop_timer <= 0:
+            self.is_hopping = False
+        else:
+            if self.hop_target:
+                direction = self.hop_target - self.position
+                if direction.length() > 1:
+                    self.position += direction.normalize() * self.move_speed
+                    self.rect.center = (round(self.position.x), round(self.position.y))
+
+    def _fire(self, player, enemy_projectiles):
+        target = pygame.Vector2(player.rect.center)
+        enemy_projectiles.append(SlimeBall(self.rect.center, target, self.color))
+        self.shoot_timer = self.shoot_interval
+
+    def update(self, player, enemy_projectiles):
+        if not self.alive:
+            return
+        self.shoot_timer -= 1
+        self.anim_timer += 0.15
+        dist = self._dist_to_player(player)
+        
+        if dist > self.aggro_range:
+            self._wander()
+            self.is_hopping = False
+        elif dist > 100:
+            self._hop_toward(player.rect.center)
+            if dist <= self.shoot_range and self.shoot_timer <= 0:
+                self._fire(player, enemy_projectiles)
+        else:
+            if self.shoot_timer <= 0:
+                self._fire(player, enemy_projectiles)
+
+    def take_damage(self, amount):
+        if not self.alive:
+            return
+        self.health = max(0, self.health - amount)
+        if self.health <= 0:
+            self.alive = False
+
+    def draw(self, screen, camera):
+        x = self.rect.centerx - camera[0]
+        y = self.rect.centery - camera[1]
+        
+        squish = 1.0
+        if self.is_hopping:
+            squish = 0.7 + abs(math.sin(self.hop_timer * 0.3)) * 0.3
+        
+        body_h = int(28 * squish)
+        body_w = int(36 * (2 - squish))
+        
+        pygame.draw.ellipse(screen, (0, 0, 0, 50), (x - 18, y + 10, 36, 10))
+        pygame.draw.ellipse(screen, self.color, (x - body_w//2, y - body_h//2, body_w, body_h))
+        pygame.draw.ellipse(screen, (255, 255, 255, 100), (x - body_w//4, y - body_h//3, body_w//3, body_h//4))
+        
+        eye_y = y - 4
+        pygame.draw.circle(screen, (255, 255, 255), (x - 6, eye_y), 5)
+        pygame.draw.circle(screen, (255, 255, 255), (x + 6, eye_y), 5)
+        pygame.draw.circle(screen, (0, 0, 0), (x - 5, eye_y), 2)
+        pygame.draw.circle(screen, (0, 0, 0), (x + 7, eye_y), 2)
+        
+        if self.health < self.max_health:
+            health_width = int(30 * max(0, self.health) / self.max_health)
+            pygame.draw.rect(screen, (40, 40, 40), (x - 15, y - body_h//2 - 10, 30, 4))
+            pygame.draw.rect(screen, (204, 58, 65), (x - 15, y - body_h//2 - 10, health_width, 4))
+
+
+class SlimeBoss(Slime):
+    """A giant slime boss - bigger, tougher, and has a slam attack."""
+    
+    def __init__(self, position, bounds=None):
+        super().__init__(position, "green", bounds)
+        self.name = "KING SLIME"
+        self.color = (60, 160, 60)
+        self.max_health = 300
+        self.health = self.max_health
+        self.damage = 25
+        self.move_speed = 0.8
+        self.shoot_interval = 50
+        self.exp_reward = 100
+        self.rect = pygame.Rect(0, 0, 64, 64)
+        self.rect.center = position
+        self.aggro_range = 500
+        self.shoot_range = 400
+        self.slam_timer = 180
+        self.is_slamming = False
+        self.slam_warning = 0
+
+    def _fire(self, player, enemy_projectiles):
+        base_target = pygame.Vector2(player.rect.center)
+        for offset in (-0.3, -0.15, 0, 0.15, 0.3):
+            direction = base_target - self.position
+            angle = math.atan2(direction.y, direction.x) + offset
+            target = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 400
+            enemy_projectiles.append(SlimeBall(self.rect.center, target, self.color))
+        self.shoot_timer = self.shoot_interval
+
+    def _slam_attack(self, player, enemy_projectiles):
+        for i in range(12):
+            angle = i * math.pi / 6
+            target = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 300
+            enemy_projectiles.append(SlimeBall(self.rect.center, target, (100, 200, 100)))
+
+    def update(self, player, enemy_projectiles):
+        if not self.alive:
+            return
+        self.shoot_timer -= 1
+        self.anim_timer += 0.1
+        self.slam_timer -= 1
+        
+        if self.slam_timer <= 30 and not self.is_slamming:
+            self.slam_warning = 30 - self.slam_timer
+        if self.slam_timer <= 0:
+            self.is_slamming = True
+            self._slam_attack(player, enemy_projectiles)
+            self.slam_timer = 180
+            self.is_slamming = False
+        
+        dist = self._dist_to_player(player)
+        
+        if dist > self.aggro_range:
+            self._wander()
+            self.is_hopping = False
+        elif dist > 80:
+            self._hop_toward(player.rect.center)
+            if dist <= self.shoot_range and self.shoot_timer <= 0:
+                self._fire(player, enemy_projectiles)
+        else:
+            if self.shoot_timer <= 0:
+                self._fire(player, enemy_projectiles)
+
+    def draw(self, screen, camera):
+        x = self.rect.centerx - camera[0]
+        y = self.rect.centery - camera[1]
+        
+        if self.slam_timer <= 30:
+            pulse = abs(math.sin(self.slam_timer * 0.2)) * 0.5 + 0.5
+            radius = int(120 + pulse * 30)
+            temp = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(temp, (255, 100, 100, int(30 + pulse * 40)), (radius, radius), radius)
+            screen.blit(temp, (x - radius, y - radius))
+        
+        squish = 1.0
+        if self.is_hopping:
+            squish = 0.7 + abs(math.sin(self.hop_timer * 0.3)) * 0.3
+        
+        body_h = int(48 * squish)
+        body_w = int(64 * (2 - squish))
+        
+        pygame.draw.ellipse(screen, (0, 0, 0, 50), (x - 32, y + 20, 64, 16))
+        pygame.draw.ellipse(screen, self.color, (x - body_w//2, y - body_h//2, body_w, body_h))
+        pygame.draw.ellipse(screen, (255, 255, 255, 100), (x - body_w//4, y - body_h//3, body_w//3, body_h//4))
+        
+        crown_points = [(x - 20, y - body_h//2), (x - 10, y - body_h//2 - 15),
+                       (x, y - body_h//2 - 5), (x + 10, y - body_h//2 - 15),
+                       (x + 20, y - body_h//2)]
+        pygame.draw.polygon(screen, (255, 215, 0), crown_points)
+        pygame.draw.circle(screen, (255, 0, 0), (x, y - body_h//2 - 10), 3)
+        
+        eye_y = y - 8
+        pygame.draw.circle(screen, (255, 255, 255), (x - 10, eye_y), 8)
+        pygame.draw.circle(screen, (255, 255, 255), (x + 10, eye_y), 8)
+        pygame.draw.circle(screen, (0, 0, 0), (x - 8, eye_y), 3)
+        pygame.draw.circle(screen, (0, 0, 0), (x + 12, eye_y), 3)
+        
+        health_width = int(70 * max(0, self.health) / self.max_health)
+        pygame.draw.rect(screen, (40, 40, 40), (x - 35, y - body_h//2 - 20, 70, 8))
+        pygame.draw.rect(screen, (204, 58, 65), (x - 35, y - body_h//2 - 20, health_width, 8))
+        
+        font = pygame.font.Font(None, 20)
+        name_surf = font.render(self.name, True, (255, 215, 0))
+        screen.blit(name_surf, (x - name_surf.get_width()//2, y - body_h//2 - 35))
+
+
 class Ninja:
     def __init__(self, position, bounds=None):
         self.position = pygame.Vector2(position)
@@ -37,16 +301,15 @@ class Ninja:
         self.shoot_timer = 0
         self.anim_timer = 0
         self.alive = True
-        # Shooting distance: only fires when player is within this range.
         self.shoot_range = 520
         self.aggro_range = 700
-        # Patrol: ninjas drift around their post while the player is far away.
         self.bounds = bounds
         self.wander_timer = 0
         self.wander_dir = pygame.Vector2(0, 0)
         self.name = "NINJA"
         self.gold_reward = 6
         self.attack_interval = 72
+        self.exp_reward = 30
 
     def _dist_to_player(self, player):
         return (pygame.Vector2(player.rect.center) - self.position).length()
@@ -66,6 +329,13 @@ class Ninja:
         self.position.y = max(self.bounds.y + 24, min(self.position.y, self.bounds.bottom - 24))
         self.rect.center = (round(self.position.x), round(self.position.y))
 
+    def _chase(self, player):
+        """Move toward the player."""
+        direction = pygame.Vector2(player.rect.center) - self.position
+        if direction.length() > 0:
+            self.position += direction.normalize() * 1.5
+            self.rect.center = (round(self.position.x), round(self.position.y))
+
     def _fire(self, player, enemy_projectiles):
         for offset in (-0.28, 0, 0.28):
             target = pygame.Vector2(player.rect.center)
@@ -78,10 +348,17 @@ class Ninja:
     def update(self, player, enemy_projectiles):
         self.shoot_timer -= 1
         self.anim_timer += 0.1
-        if self._dist_to_player(player) > self.aggro_range:
-            self._wander()  # player too far away: patrol the area
+        dist = self._dist_to_player(player)
+        
+        if dist > self.aggro_range:
+            self._wander()
             return
-        if self.shoot_timer <= 0 and self._dist_to_player(player) <= self.shoot_range:
+        
+        # Chase the player
+        if dist > 100:
+            self._chase(player)
+        
+        if self.shoot_timer <= 0 and dist <= self.shoot_range:
             self._fire(player, enemy_projectiles)
 
     def take_damage(self, amount):
@@ -122,6 +399,10 @@ class NinjaBoss(Ninja):
         self.attack_interval = 55
         self.name = "NINJA WARLORD"
         self.gold_reward = 75
+        # Special attack: radial bullet burst with warning indicator
+        self.special_attack_timer = 300  # frames until next special
+        self.special_attack_duration = 90  # frames the warning lasts
+        self.is_charging_special = False
 
     def _fire(self, player, enemy_projectiles):
         for offset in (-0.4, -0.2, 0.0, 0.2, 0.4):
@@ -132,7 +413,42 @@ class NinjaBoss(Ninja):
             enemy_projectiles.append(NinjaStar(self.rect.center, aim))
         self.shoot_timer = self.attack_interval
 
+    def _fire_special(self, player, enemy_projectiles):
+        """Radial bullet burst - 16 stars in all directions."""
+        for i in range(16):
+            angle = i * math.pi / 8
+            aim = self.position + pygame.Vector2(math.cos(angle), math.sin(angle)) * 600
+            enemy_projectiles.append(NinjaStar(self.rect.center, aim))
+
+    def update(self, player, enemy_projectiles):
+        super().update(player, enemy_projectiles)
+        self.special_attack_timer -= 1
+        if self.special_attack_timer <= self.special_attack_duration and not self.is_charging_special:
+            self.is_charging_special = True
+        if self.special_attack_timer <= 0:
+            self._fire_special(player, enemy_projectiles)
+            self.special_attack_timer = 300
+            self.is_charging_special = False
+
+    def _draw_special_indicator(self, screen, camera):
+        """Draw a warning circle when charging the special radial burst."""
+        x = self.rect.centerx - camera[0]
+        y = self.rect.centery - camera[1]
+        radius = int(self.shoot_range)
+        temp = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        # Pulsing warning ring
+        pulse = abs(math.sin(self.special_attack_timer * 0.1)) * 0.5 + 0.5
+        alpha = int(40 + pulse * 40)
+        pygame.draw.circle(temp, (255, 80, 80, alpha), (radius, radius), radius)
+        pygame.draw.circle(temp, (255, 100, 100, alpha + 20), (radius, radius), radius, max(1, int(3 * (radius / 640))))
+        # Inner danger zone
+        inner_radius = int(radius * 0.6)
+        pygame.draw.circle(temp, (255, 50, 50, int(alpha * 0.5)), (radius, radius), inner_radius)
+        screen.blit(temp, (x - radius, y - radius))
+
     def draw(self, screen, camera):
+        if self.is_charging_special:
+            self._draw_special_indicator(screen, camera)
         x = self.rect.centerx - camera[0]
         y = self.rect.centery - camera[1] + int(math.sin(self.anim_timer) * 2)
         pygame.draw.ellipse(screen, (12, 17, 22), (x - 32, y + 24, 64, 16))

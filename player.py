@@ -2,7 +2,7 @@ import math
 
 import pygame
 
-from items import get_ability_profile, get_weapon_profile
+from items import ORB_ORDER, ORB_VALUES, get_ability_profile, get_weapon_profile
 
 
 def _white(core):
@@ -83,6 +83,9 @@ class Player:
         self.max_health = 100
         self.mana = 65
         self.level = 1
+        self.exp = 0
+        self.exp_to_next = 50
+        self.skill_points = 0
         self.is_moving = False
         self.is_shielding = False
         self.shield_timer = 0
@@ -91,8 +94,89 @@ class Player:
         self.attack_cd = 0
         self.ability_cd = 0
         self.overdrive_timer = 0
-        # Pocket gold for shopping / selling in town.
-        self.gold = 30
+        # POE-style orb pouch: the trading / crafting currency. Orbs are
+        # dropped by enemies and spent at the shop or THE FORGE.
+        self.orbs = {"scrap": 6, "phase": 2, "quantum": 0, "singularity": 0}
+        # Skill tree
+        from skills import SkillTree
+        self.skill_tree = SkillTree()
+        self.bonus_health = 0  # Track bonus health from skills for respec
+
+    def gain_exp(self, amount):
+        """Gain experience points. Returns True if leveled up."""
+        # Apply exp multiplier from skills
+        effect = self.skill_tree.get_total_effect()
+        amount = int(amount * effect.get("exp_mult", 1.0))
+        
+        self.exp += amount
+        leveled_up = False
+        
+        while self.exp >= self.exp_to_next:
+            self.exp -= self.exp_to_next
+            self.level += 1
+            self.skill_points += 1
+            self.exp_to_next = 50 + (self.level - 1) * 25
+            leveled_up = True
+        
+        return leveled_up
+
+    def apply_skill_effects(self):
+        """Apply passive effects from skills (call after skill change or level up)."""
+        effect = self.skill_tree.get_total_effect()
+        
+        # Apply max health bonus
+        bonus_health = effect.get("max_health", 0)
+        if bonus_health != self.bonus_health:
+            diff = bonus_health - self.bonus_health
+            self.max_health = 100 + bonus_health
+            self.health = min(self.health + diff, self.max_health)
+            self.bonus_health = bonus_health
+        
+        # Apply speed bonus
+        self.speed = 4 * effect.get("speed_mult", 1.0)
+
+    # ------------------------------------------------------------- orb pouch
+    def orb_balance(self):
+        return sum(n * ORB_VALUES[k] for k, n in self.orbs.items())
+
+    def add_orb(self, key, count=1):
+        self.orbs[key] = self.orbs.get(key, 0) + count
+
+    def spend_orbs(self, value):
+        """Pay `value` trade points, burning cheapest orbs first (with an
+        exact-change shard refund). Returns False if you can't afford it."""
+        if self.orb_balance() < value:
+            return False
+        remaining = value
+        for key in ORB_ORDER:
+            if remaining <= 0:
+                break
+            v = ORB_VALUES[key]
+            use = min(self.orbs.get(key, 0), -(-remaining // v))
+            self.orbs[key] = self.orbs.get(key, 0) - use
+            remaining -= use * v
+        if remaining < 0:
+            self.orbs["scrap"] += -remaining
+        return True
+
+    def credit_orbs(self, value):
+        """Receive `value` trade points, paid out in the largest orbs first."""
+        for key in reversed(ORB_ORDER):
+            v = ORB_VALUES[key]
+            n, value = divmod(value, v)
+            if n:
+                self.add_orb(key, n)
+
+    def has_orbs(self, cost):
+        return all(self.orbs.get(k, 0) >= n for k, n in cost.items())
+
+    def pay_orbs(self, cost):
+        """Consume an exact per-orb-type recipe cost. Returns False if short."""
+        if not self.has_orbs(cost):
+            return False
+        for k, n in cost.items():
+            self.orbs[k] = self.orbs.get(k, 0) - n
+        return True
 
     def equipped_weapon(self, ui=None):
         try:
@@ -236,6 +320,27 @@ class Player:
                 except Exception:
                     continue
             return (True, "shots", bolts)
+        if key == "ring":
+            bolts = []
+            for i in range(12):
+                try:
+                    ang = i * math.tau / 12
+                    target = (self.rect.centerx + math.cos(ang) * 600, self.rect.centery + math.sin(ang) * 600)
+                    bolt = Projectile(self.rect.center, target, weapon=("TEMPEST", (170, 220, 255), "rare", "weapon"))
+                    bolt.damage = 16
+                    bolts.append(bolt)
+                except Exception:
+                    continue
+            return (True, "shots", bolts)
+        if key == "phoenix":
+            self.health = min(self.max_health, self.health + 60)
+            self.bubble_shield(360)
+            return (True, "pulse", {"radius": 260, "damage": 70})
+        if key == "cryo":
+            self.bubble_shield(120)
+            return (True, "pulse", {"radius": 220, "damage": 45})
+        if key == "well":
+            return (True, "well", {"radius": 340, "damage": 45})
         if key == "overdrive":
             self.overdrive_timer = 300
             return (True, "buff", None)
