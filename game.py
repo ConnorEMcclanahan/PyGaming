@@ -2,6 +2,7 @@ import pygame
 from player import Player
 from settings import Settings
 from game_testing_environment import GameTestingEnvironment
+from ui import UI
 
 class Game:
     def __init__(self):
