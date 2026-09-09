@@ -56,6 +56,10 @@ class Tutorial:
         self.boss_door_open = False
         self.in_boss_room = False
         self.boss_fight_on = False
+        # Wall between the boss room and the grass/ship pad: solid until the
+        # spaceship lands, then cleared so the player can board.
+        self.wall_x = 2450
+        self.wall_open = False
         self.projectiles = []
         self.egg_projectiles = []
         self.particles = []
@@ -126,6 +130,13 @@ class Tutorial:
                 self.player.rect.topleft = (self.player.x, self.player.y)
             if not self.boss_fight_on and self.boss.alive and self.player.rect.centerx > BOSS_ROOM_X + 60:
                 self.boss_fight_on = True
+
+            # Wall before the grass: solid until the spaceship has landed.
+            if self.ship is not None and self.ship["landed"]:
+                self.wall_open = True
+            if not self.wall_open and self.player.rect.centerx > self.wall_x - 10:
+                self.player.x = self.wall_x - 10 - self.player.width // 2
+                self.player.rect.topleft = (self.player.x, self.player.y)
 
             # Hold-to-shoot: keep firing at the cursor while LMB is held.
             # try_attack() rate-limits to the weapon's attack speed.
@@ -237,7 +248,7 @@ class Tutorial:
                 cx, cy = self.player.rect.center
                 for foe in (self.chicken, self.boss):
                     try:
-                        if foe.alive and _math.hypot(foe.rect.centerx - cx, foe.rect.centery - cy) <= payload.get("radius", 190):
+                        if foe.alive and math.hypot(foe.rect.centerx - cx, foe.rect.centery - cy) <= payload.get("radius", 190):
                             foe.take_damage(payload.get("damage", 30))
                     except Exception:
                         continue
@@ -382,6 +393,37 @@ class Tutorial:
         pygame.draw.rect(self.screen, (90, 80, 60), (x, y, 90, 140))
         pygame.draw.rect(self.screen, (150, 130, 90), (x, y, 90, 140), 6)
         self._label("THE GATE", (x + 45, y - 12), (248, 214, 137))
+
+    def _draw_boss_room(self):
+        """The giant chicken's chamber: stone side walls, an always-open west
+        door and an east door that stays sealed until the boss is defeated."""
+        x1 = BOSS_ROOM_X - round(self.camera.x)
+        x2 = BOSS_ROOM_X2 - round(self.camera.x)
+        y = WORLD_H // 2
+        if x2 < -140 or x1 > self.screen.get_width() + 140:
+            return
+        # Chamber floor: darker stone than the corridor tiles.
+        pygame.draw.rect(self.screen, (33, 39, 45), (x1, 0, x2 - x1, WORLD_H))
+        for tx in range(BOSS_ROOM_X, BOSS_ROOM_X2, 48):
+            sx = tx - round(self.camera.x)
+            pygame.draw.line(self.screen, (37, 44, 51), (sx, 0), (sx, WORLD_H))
+        # West door frame: always open.
+        pygame.draw.rect(self.screen, (95, 76, 58), (x1 - 6, y - 170, 12, 340))
+        for i in range(11):
+            pygame.draw.rect(self.screen, (110, 88, 66), (x1 - 20, y - 170 + i * 30 - 8, 16, 12))
+        self._label("BOSS ROOM", (x1, y - 190), (248, 214, 137))
+        # East door: sealed until the boss drops, then swung open.
+        if self.boss_door_open:
+            pygame.draw.rect(self.screen, (110, 90, 70), (x2 - 6, y - 170, 12, 100))
+            pygame.draw.rect(self.screen, (110, 90, 70), (x2 - 6, y + 70, 12, 100))
+            self._label("WAY OPEN!", (x2, y - 190), (120, 220, 120))
+        else:
+            pygame.draw.rect(self.screen, (95, 76, 58), (x2 - 6, y - 170, 12, 340))
+            for i in range(11):
+                pygame.draw.rect(self.screen, (110, 88, 66), (x2 - 20, y - 170 + i * 30 - 8, 16, 12))
+            self._label("DOOR LOCKED", (x2, y - 190), (248, 214, 137))
+        # Wall before the grass pad (renders as rubble once the ship lands).
+        self._draw_wall()
 
     def _draw_wall(self):
         x = self.wall_x - round(self.camera.x)
