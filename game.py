@@ -1,51 +1,43 @@
 import pygame
 from player import Player
-from bullet import Bullet
-from ninja import Ninja
 from settings import Settings
-from inventory import Inventory
-from pixel_art_knights import Knight
-from pixel_art_ui import UI
-from testing_environment import TestingEnvironment
+from game_testing_environment import GameTestingEnvironment
 
 class Game:
     def __init__(self):
         self.settings = Settings()
-        self.screen = None
-        self.clock = None
-        self.player = None
-        self.ninja = None
-        self.bullets = []
-        self.ui = None
-        self.inventory = None
+        self.screen = pygame.display.set_mode((self.settings.screen_width, self.settings.screen_height))
+        pygame.display.set_caption("ROTGM-Style Bullet Hell Test")
+        self.clock = pygame.time.Clock()
+        self.player = Player(self.screen)
+        self.projectiles = []
+        self.ui = UI(self.screen, self.settings)
 
     def run(self):
         running = True
         while running:
+            self.ui.draw()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:
-                        self.player.attack()
-                    elif event.button == 3:
-                        self.player.shield()
-                elif event.type == self.player.INVENTORY_ITEM_ADDED:
-                    self.ui.update_inventory()
-                elif event.type == self.player.INVENTORY_ITEM_USED:
-                    self.ui.update_inventory()
-
-            self.player.update(pygame.mouse.get_pos())
-            self.ninja.update()
-
-            self.screen.fill((0, 0, 0))
+                    if event.button == 1:  # Left click: Shoot big sword
+                        sword = self.player.attack(pygame.mouse.get_pos())
+                        self.projectiles.append(sword)
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:  # Space: Shield bash
+                        self.player.shield_bash()
+            self.player.update(pygame.key.get_pressed())
             self.player.draw(self.screen)
-            self.ninja.draw(self.screen)
-            for bullet in self.bullets:
-                bullet.update()
-                bullet.draw(self.screen)
-            self.ui.draw(self.screen)
+            for proj in self.projectiles:
+                proj.update()
+                if not self.screen.get_rect().collidepoint(proj.rect.center):
+                    self.projectiles.remove(proj)
+            self.screen.fill((30, 30, 30))  # Dark floor background
+            self.ui.draw()
+            pygame.display.flip()
+            self.clock.tick(60)
 
     def run_testing_environment(self):
-        testing_environment = TestingEnvironment(self)
+        testing_environment = GameTestingEnvironment(self)
         testing_environment.run_testing_environment()
