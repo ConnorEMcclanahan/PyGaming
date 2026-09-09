@@ -119,7 +119,7 @@ def make_npcs():
         NPC("MIRA", (700, 2600), (130, 105, 150),
             line="Slimes infest the ruins to the east. They're weak — good for beginners!"),
         NPC("OLD TOM", (430, 2700), (110, 120, 130),
-            line="The beach to the south is nice, but don't swim too deep or you'll drown!"),
+            line="The beach to the north is nice, but don't swim too deep or you'll drown!"),
     ]
     plaza = TOWN_RECT.inflate(-160, -160)
     for npc in npcs:

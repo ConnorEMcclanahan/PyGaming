@@ -32,13 +32,13 @@ STARTER_ABILITY = ("HOLO SCROLL", (188, 205, 222), "common", "ability")
 # - Ninja Hideout: far south of town - advanced area
 # Town gate is at x=1250, y=2420-2660. Town spans y=1800 to y=3280.
 
-# Beach & Water (south, on town side)
-BEACH_TOP = 3400       # Sandy beach starts just below town
-BEACH_BOTTOM = 3700    # Beach ends, shallow water begins
-SHALLOW_TOP = 3700
-SHALLOW_BOTTOM = 4000  # Shallow water (walkable)
-DEEP_WATER_TOP = 4000  # Deep water (blocked)
-DEEP_WATER_BOTTOM = 4500  # Deep water ends here
+# Beach & Water (north of town - water is far north, beach is town side)
+DEEP_WATER_TOP = 0       # Deep water starts at north edge (blocked)
+DEEP_WATER_BOTTOM = 500  # Deep water ends, shallow begins
+SHALLOW_TOP = 500
+SHALLOW_BOTTOM = 800     # Shallow water ends, beach begins
+BEACH_TOP = 800
+BEACH_BOTTOM = 1200      # Beach ends, town starts below
 
 # Slime Ruins - east of town (beginner area) - more slimes, moved east
 STARTER_SLIMES = [
@@ -48,7 +48,7 @@ STARTER_SLIMES = [
     (2000, 2600, "green"), (2300, 2500, "green"), (2600, 2200, "blue"),
 ]
 SLIME_BOSS_POS = (2200, 2200)  # Slime boss in the ruins
-SLIME_RUIN_RECT = pygame.Rect(1800, 1900, 900, 800)  # Ruin structure area
+SLIME_RUIN_RECT = pygame.Rect(1800, 1900, 900, 800)  # Ruin structure area (east of town)
 
 # Ninja Hideout - far south of town (advanced area)
 WILDERNESS_NINJAS = [
@@ -762,12 +762,12 @@ class Game:
         ]
         for spec in BUILDINGS:
             landmarks.append((spec["rect"], (150, 110, 70)))
-        # Beach (sandy south, town side)
-        landmarks.append((pygame.Rect(0, BEACH_TOP, 8000, BEACH_BOTTOM - BEACH_TOP), (214, 198, 146)))
+        # Deep water (blocked - far north)
+        landmarks.append((pygame.Rect(0, DEEP_WATER_TOP, 8000, DEEP_WATER_BOTTOM - DEEP_WATER_TOP), (40, 100, 160)))
         # Shallow water (walkable)
         landmarks.append((pygame.Rect(0, SHALLOW_TOP, 8000, SHALLOW_BOTTOM - SHALLOW_TOP), (80, 160, 200)))
-        # Deep water (blocked)
-        landmarks.append((pygame.Rect(0, DEEP_WATER_TOP, 8000, DEEP_WATER_BOTTOM - DEEP_WATER_TOP), (40, 100, 160)))
+        # Beach (sandy, town side)
+        landmarks.append((pygame.Rect(0, BEACH_TOP, 8000, BEACH_BOTTOM - BEACH_TOP), (214, 198, 146)))
         # Slime Ruins (east of town)
         landmarks.append((SLIME_RUIN_RECT, (100, 120, 60)))
         landmarks.append((pygame.Rect(SLIME_BOSS_POS[0] - 40, SLIME_BOSS_POS[1] - 40, 80, 80), (100, 200, 100)))
@@ -827,14 +827,16 @@ class Game:
             screen_y = y - round(self.camera.y)
             pygame.draw.line(surf, (38, 50, 59), (0, screen_y), (self.view_width, screen_y))
 
-        # Beach (sandy area in south, town side)
-        beach_rect = pygame.Rect(0, BEACH_TOP, 8000, BEACH_BOTTOM - BEACH_TOP)
-        screen_beach = beach_rect.move(-round(self.camera.x), -round(self.camera.y))
-        pygame.draw.rect(surf, (214, 198, 146), screen_beach)
-        # Sand texture dots
-        for sx in range(0, 8000, 60):
-            for sy in range(BEACH_TOP, BEACH_BOTTOM, 60):
-                pygame.draw.circle(surf, (196, 180, 130), (sx - round(self.camera.x), sy - round(self.camera.y)), 2)
+        # Deep water (blocked - far north, touches north edge)
+        deep_rect = pygame.Rect(0, DEEP_WATER_TOP, 8000, DEEP_WATER_BOTTOM - DEEP_WATER_TOP)
+        screen_deep = deep_rect.move(-round(self.camera.x), -round(self.camera.y))
+        pygame.draw.rect(surf, (40, 100, 160), screen_deep)
+        # Animated deep water waves
+        for sy in range(DEEP_WATER_TOP, DEEP_WATER_BOTTOM, 40):
+            for sx in range(0, 8000, 80):
+                wave_offset = math.sin(self.wave_time * 1.3 + sx * 0.015 + sy * 0.02) * 6
+                pygame.draw.arc(surf, (60, 120, 180),
+                    (sx - round(self.camera.x), sy - round(self.camera.y) + wave_offset, 45, 18), 0, 3.14, 2)
 
         # Shallow water (walkable) with animated waves
         shallow_rect = pygame.Rect(0, SHALLOW_TOP, 8000, SHALLOW_BOTTOM - SHALLOW_TOP)
@@ -847,16 +849,14 @@ class Game:
                 pygame.draw.arc(surf, (100, 180, 220),
                     (sx - round(self.camera.x), sy - round(self.camera.y) + wave_offset, 35, 12), 0, 3.14, 2)
 
-        # Deep water (blocked - darker) with animated waves
-        deep_rect = pygame.Rect(0, DEEP_WATER_TOP, 8000, DEEP_WATER_BOTTOM - DEEP_WATER_TOP)
-        screen_deep = deep_rect.move(-round(self.camera.x), -round(self.camera.y))
-        pygame.draw.rect(surf, (40, 100, 160), screen_deep)
-        # Animated deep water waves
-        for sy in range(DEEP_WATER_TOP, DEEP_WATER_BOTTOM, 40):
-            for sx in range(0, 8000, 80):
-                wave_offset = math.sin(self.wave_time * 1.3 + sx * 0.015 + sy * 0.02) * 6
-                pygame.draw.arc(surf, (60, 120, 180),
-                    (sx - round(self.camera.x), sy - round(self.camera.y) + wave_offset, 45, 18), 0, 3.14, 2)
+        # Beach (sandy area, town side - between water and town)
+        beach_rect = pygame.Rect(0, BEACH_TOP, 8000, BEACH_BOTTOM - BEACH_TOP)
+        screen_beach = beach_rect.move(-round(self.camera.x), -round(self.camera.y))
+        pygame.draw.rect(surf, (214, 198, 146), screen_beach)
+        # Sand texture dots
+        for sx in range(0, 8000, 60):
+            for sy in range(BEACH_TOP, BEACH_BOTTOM, 60):
+                pygame.draw.circle(surf, (196, 180, 130), (sx - round(self.camera.x), sy - round(self.camera.y)), 2)
 
         # Slime Ruins (east of town)
         ruin = SLIME_RUIN_RECT.move(-round(self.camera.x), -round(self.camera.y))
