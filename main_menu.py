@@ -37,7 +37,7 @@ class MainMenu:
     def show_settings(self):
         settings_font = pygame.font.Font(None, 36)
         back_button = settings_font.render("Back", True, (255, 255, 255))
-        back_button_rect = back_button.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2))
+        back_button_rect = back_button.get_rect(center=(self.screen.get_width() // 2, screen.get_height() // 2))
 
         while True:
             for event in pygame.event.get():
@@ -51,7 +51,7 @@ class MainMenu:
             self.screen.fill((27, 35, 43))
             settings_font = pygame.font.Font(None, 36)
             settings_text = settings_font.render("Settings", True, (255, 255, 255))
-            settings_text_rect = settings_text.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 3))
+            settings_text_rect = settings_text.get_rect(center=(self.screen.get_width() // 2, screen.get_height() // 3))
             self.screen.blit(settings_text, settings_text_rect)
             self.screen.blit(back_button, back_button_rect)
             pygame.display.flip()
