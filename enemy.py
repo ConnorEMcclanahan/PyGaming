@@ -88,6 +88,13 @@ class Slime:
         self.wander_dir = pygame.Vector2(0, 0)
         self.aggro_range = 400
         self.shoot_range = 350
+        # Persistent aggro state: stay mad at the player briefly after they flee.
+        self.is_aggro = False
+        self.aggro_timer = 0
+        self.prev_dist = float("inf")
+        self.flee_cooldown = 0
+        self.last_seen_pos = None
+        self.last_seen_timer = 0
 
     def _dist_to_player(self, player):
         return (pygame.Vector2(player.rect.center) - self.position).length()
@@ -138,17 +145,54 @@ class Slime:
         self.shoot_timer -= 1
         self.anim_timer += 0.15
         dist = self._dist_to_player(player)
-        
-        if dist > self.aggro_range:
+
+        # Track how far the player was last seen, to detect fleeing.
+        prev_dist = self.prev_dist
+        self.prev_dist = dist
+
+        # Determine whether the player is moving away from this enemy.
+        fleeing = dist > prev_dist and dist > self.shoot_range
+
+        # Refresh aggro while the player is nearby.
+        if dist <= self.aggro_range:
+            self.is_aggro = True
+            self.aggro_timer = 180  # 3 seconds at 60 FPS
+            self.last_seen_pos = pygame.Vector2(player.rect.center)
+            self.last_seen_timer = 180
+        else:
+            self.aggro_timer -= 1
+            self.last_seen_timer -= 1
+            if self.aggro_timer <= 0:
+                self.is_aggro = False
+                self.flee_cooldown = 0
+
+        # When the player is fleeing, build up a shot cooldown so the
+        # enemy eventually stops firing.
+        if fleeing:
+            self.flee_cooldown = min(self.flee_cooldown + 4, 120)
+
+        if dist > self.aggro_range and not self.is_aggro:
             self._wander()
             self.is_hopping = False
-        elif dist > 100:
-            self._hop_toward(player.rect.center)
-            if dist <= self.shoot_range and self.shoot_timer <= 0:
+            return
+
+        if not self.is_aggro:
+            self._wander()
+            self.is_hopping = False
+            return
+
+        # Aggroed: chase toward the last-seen position (or the player if visible).
+        target_pos = self.last_seen_pos if self.last_seen_timer > 0 else None
+        if dist <= self.aggro_range:
+            target_pos = player.rect.center
+
+        if dist > 100:
+            if target_pos:
+                self._hop_toward(target_pos)
+            if dist <= self.shoot_range and self.shoot_timer <= 0 and self.flee_cooldown <= 0:
                 self._fire(player, enemy_projectiles)
-        else:
-            if self.shoot_timer <= 0:
-                self._fire(player, enemy_projectiles)
+        elif self.shoot_timer <= 0 and self.flee_cooldown <= 0:
+            self._fire(player, enemy_projectiles)
 
     def take_damage(self, amount):
         if not self.alive:
@@ -236,17 +280,43 @@ class SlimeBoss(Slime):
             self.is_slamming = False
         
         dist = self._dist_to_player(player)
-        
-        if dist > self.aggro_range:
+
+        # Persistent aggro state + fleeing detection.
+        prev_dist = self.prev_dist
+        self.prev_dist = dist
+        fleeing = dist > prev_dist and dist > self.shoot_range
+
+        if dist <= self.aggro_range:
+            self.is_aggro = True
+            self.aggro_timer = 180
+            self.last_seen_pos = pygame.Vector2(player.rect.center)
+            self.last_seen_timer = 180
+        else:
+            self.aggro_timer -= 1
+            self.last_seen_timer -= 1
+            if self.aggro_timer <= 0:
+                self.is_aggro = False
+                self.flee_cooldown = 0
+
+        if fleeing:
+            self.flee_cooldown = min(self.flee_cooldown + 4, 120)
+
+        if not self.is_aggro and dist > self.aggro_range:
             self._wander()
             self.is_hopping = False
-        elif dist > 80:
-            self._hop_toward(player.rect.center)
-            if dist <= self.shoot_range and self.shoot_timer <= 0:
+            return
+
+        target_pos = self.last_seen_pos if self.last_seen_timer > 0 else None
+        if dist <= self.aggro_range:
+            target_pos = player.rect.center
+
+        if dist > 80:
+            if target_pos:
+                self._hop_toward(target_pos)
+            if dist <= self.shoot_range and self.shoot_timer <= 0 and self.flee_cooldown <= 0:
                 self._fire(player, enemy_projectiles)
-        else:
-            if self.shoot_timer <= 0:
-                self._fire(player, enemy_projectiles)
+        elif self.shoot_timer <= 0 and self.flee_cooldown <= 0:
+            self._fire(player, enemy_projectiles)
 
     def draw(self, screen, camera):
         x = self.rect.centerx - camera[0]
@@ -310,6 +380,13 @@ class Ninja:
         self.gold_reward = 6
         self.attack_interval = 72
         self.exp_reward = 30
+        # Persistent aggro state for smarter enemy behavior.
+        self.is_aggro = False
+        self.aggro_timer = 0
+        self.prev_dist = float("inf")
+        self.flee_cooldown = 0
+        self.last_seen_pos = None
+        self.last_seen_timer = 0
 
     def _dist_to_player(self, player):
         return (pygame.Vector2(player.rect.center) - self.position).length()
@@ -349,16 +426,41 @@ class Ninja:
         self.shoot_timer -= 1
         self.anim_timer += 0.1
         dist = self._dist_to_player(player)
-        
-        if dist > self.aggro_range:
+
+        # Persistent aggro state + fleeing detection.
+        prev_dist = self.prev_dist
+        self.prev_dist = dist
+        fleeing = dist > prev_dist and dist > self.shoot_range
+
+        if dist <= self.aggro_range:
+            self.is_aggro = True
+            self.aggro_timer = 240
+            self.last_seen_pos = pygame.Vector2(player.rect.center)
+            self.last_seen_timer = 240
+        else:
+            self.aggro_timer -= 1
+            self.last_seen_timer -= 1
+            if self.aggro_timer <= 0:
+                self.is_aggro = False
+                self.flee_cooldown = 0
+
+        if fleeing:
+            self.flee_cooldown = min(self.flee_cooldown + 3, 90)
+
+        if not self.is_aggro and dist > self.aggro_range:
             self._wander()
             return
-        
-        # Chase the player
+
+        # Chase the player (or last-seen position if they broke line of sight).
+        target_pos = self.last_seen_pos if self.last_seen_timer > 0 else None
+        if dist <= self.aggro_range:
+            target_pos = player.rect.center
+
         if dist > 100:
-            self._chase(player)
+            if target_pos:
+                self._chase(player)
         
-        if self.shoot_timer <= 0 and dist <= self.shoot_range:
+        if self.shoot_timer <= 0 and dist <= self.shoot_range and self.flee_cooldown <= 0:
             self._fire(player, enemy_projectiles)
 
     def take_damage(self, amount):
@@ -385,7 +487,7 @@ class Ninja:
 
 
 class NinjaBoss(Ninja):
-    """The warlord of the hideout east of town: bigger, tougher, and he throws
+    """The warlord of the hideout south of town: bigger, tougher, and he throws
     much wider fans of stars. Regular ninjas patrol all around his lair."""
 
     def __init__(self, position, bounds=None):

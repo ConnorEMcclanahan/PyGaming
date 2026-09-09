@@ -62,6 +62,36 @@ RING_NINJAS = [
 BOSS_POS = (2100, 5700)   # Ninja boss hideout - far south of town
 NINJA_HIDEOUT_RECT = pygame.Rect(1700, 5200, 900, 900)  # Southern hideout area
 
+# Vegetation: trees and grass scattered in the overworld.
+# Near the ninja hideout (far south), vegetation is withered/dead.
+NINJA_HIDEOUT_CENTER = pygame.Vector2(BOSS_POS[0], BOSS_POS[1])
+VEGETATION_DEAD_START = 4000  # Y threshold; below this, vegetation starts dying
+
+
+def _gen_vegetation():
+    """Returns a list of (x, y, kind, dead) tuples for trees and grass."""
+    rng = random.Random(42)
+    items = []
+    for _ in range(160):
+        x = rng.randint(200, 7800)
+        y = rng.randint(1400, 4900)
+        # Skip areas that overlap the town
+        if 1100 < y < 1900:
+            continue
+        kind = rng.choice(("tree", "tree", "tree", "grass", "grass", "bush"))
+        # Deadness scales with distance from town toward the ninja hideout.
+        deadness = min(1.0, (y - VEGETATION_DEAD_START) / 2000.0)
+        dead = deadness > 0.3 and rng.random() < deadness
+        items.append((x, y, kind, dead))
+    # Sparse dead trees in the far south (ninja approach)
+    for _ in range(40):
+        x = rng.randint(1200, 2800)
+        y = rng.randint(4900, 6400)
+        kind = "dead_tree"
+        items.append((x, y, kind, True))
+    return items
+VEGETATION = _gen_vegetation()
+
 INTERACT_RANGE = 95
 
 NINJA_DEATH_PALETTE = [(188, 205, 222), (118, 35, 49), (221, 215, 184), (26, 30, 34)]
@@ -71,6 +101,9 @@ SLIME_DEATH_PALETTE = [(80, 180, 80), (120, 220, 120), (60, 140, 60), (100, 200,
 DEEP_WATER_RECTS = [
     pygame.Rect(0, DEEP_WATER_TOP, 8000, DEEP_WATER_BOTTOM - DEEP_WATER_TOP),
 ]
+
+# Tree collision rectangles (generated from vegetation data)
+TREE_RECTS = [pygame.Rect(x - 12, y - 30, 24, 30) for (x, y, kind, dead) in VEGETATION if kind in ("tree", "dead_tree", "bush")]
 
 
 def _wrap_text(text, width):
@@ -418,8 +451,8 @@ class Game:
         """Axis-separated collision against town walls, buildings, the
         hideout, and deep water. The gate gap in the east wall is the only way in/out."""
         solids = self._solid_rects()
-        # Add deep water as solid (shallow water is walkable)
-        solids = solids + DEEP_WATER_RECTS
+        # Add deep water and trees as solid (shallow water is walkable)
+        solids = solids + DEEP_WATER_RECTS + TREE_RECTS
         p = self.player
         if not any(p.rect.colliderect(s) for s in solids):
             return
@@ -774,6 +807,8 @@ class Game:
         # Ninja Hideout (south)
         landmarks.append((NINJA_HIDEOUT_RECT, (120, 44, 44)))
         landmarks.append((pygame.Rect(BOSS_POS[0] - 55, BOSS_POS[1] - 55, 110, 110), (214, 60, 62)))
+        # Withered land (dead vegetation zone) near the hideout
+        landmarks.append((pygame.Rect(0, VEGETATION_DEAD_START, 8000, 6400 - VEGETATION_DEAD_START), (120, 100, 50)))
         return landmarks
 
     # ------------------------------------------------------------------ draw
@@ -858,6 +893,9 @@ class Game:
             for sy in range(BEACH_TOP, BEACH_BOTTOM, 60):
                 pygame.draw.circle(surf, (196, 180, 130), (sx - round(self.camera.x), sy - round(self.camera.y)), 2)
 
+        # Vegetation: trees, grass, bushes — withers near the ninja hideout.
+        self._draw_vegetation(surf)
+
         # Slime Ruins (east of town)
         ruin = SLIME_RUIN_RECT.move(-round(self.camera.x), -round(self.camera.y))
         # Crumbled stone floor
@@ -917,6 +955,49 @@ class Game:
         for text in self.float_texts:
             label = self.world_font.render(text["text"], True, text["color"])
             surf.blit(label, (round(text["pos"].x - self.camera.x), round(text["pos"].y - self.camera.y)))
+
+    def _draw_vegetation(self, surf):
+        """Draw trees, bushes, and grass. Vegetation withers near the ninja hideout."""
+        cam_x = round(self.camera.x)
+        cam_y = round(self.camera.y)
+        for vx, vy, kind, dead in VEGETATION:
+            sx = vx - cam_x
+            sy = vy - cam_y
+            if kind == "tree":
+                self._draw_tree(surf, sx, sy, dead)
+            elif kind == "dead_tree":
+                self._draw_tree(surf, sx, sy, True)
+            elif kind == "bush":
+                self._draw_bush(surf, sx, sy, dead)
+            else:  # grass
+                self._draw_grass(surf, sx, sy, dead)
+
+    def _draw_tree(self, surf, x, y, dead):
+        """Draw a tree trunk + foliage. If dead, browns/yellows instead of green."""
+        trunk_color = (110, 70, 45) if not dead else (130, 100, 70)
+        if dead:
+            leaf_color = (180, 150, 60)  # brown/yellow withered leaves
+        else:
+            leaf_color = (50, 150, 60)   # healthy green
+        # Trunk
+        pygame.draw.rect(surf, trunk_color, (x - 5, y, 10, 30))
+        # Foliage (cluster of circles)
+        for _dx, _dy in [(-18, -10), (18, -10), (-12, 0), (12, 0), (0, -18), (0, -2)]:
+            pygame.draw.circle(surf, leaf_color, (x + _dx, y + _dy), 14)
+
+    def _draw_bush(self, surf, x, y, dead):
+        """Draw a bush. If dead, withered brown."""
+        color = (130, 110, 60) if dead else (70, 150, 80)
+        pygame.draw.circle(surf, color, (x, y), 14)
+        pygame.draw.circle(surf, color, (x - 10, y), 12)
+        pygame.draw.circle(surf, color, (x + 8, y - 6), 12)
+
+    def _draw_grass(self, surf, x, y, dead):
+        """Draw a tuft of grass. If dead, brown."""
+        color = (160, 140, 60) if dead else (100, 180, 70)
+        pygame.draw.line(surf, color, (x, y), (x + 2, y - 5), 2)
+        pygame.draw.line(surf, color, (x + 2, y), (x + 4, y - 4), 2)
+        pygame.draw.line(surf, color, (x + 4, y), (x + 6, y - 5), 2)
 
     def _draw_interact_prompt(self):
         npc = self._near_npc()
